@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=7 python -m llava.eval.model_vqa_science \
+CUDA_VISIBLE_DEVICES=6 python -m llava.eval.model_vqa_science \
     --model-path /data1/public_data/llava_ckpt/LLaVA-vicuna-7B-v1.3-ScienceQA \
     --question-file /home/wangxinhao/ScienceQA/data/scienceqa/llava_test_QCM-LEA.json \
     --image-folder /home/wangxinhao/ScienceQA/data/scienceqa/images/test \
@@ -6,4 +6,5 @@ CUDA_VISIBLE_DEVICES=7 python -m llava.eval.model_vqa_science \
     --image-folder-calibrate /home/wangxinhao/ScienceQA/data/scienceqa/images/train \
     --answers-file /home/wangxinhao/QVLM/results/tmp/LLaVA-vicuna-7B-v1.3-4bit.jsonl \
     --conv-mode llava_v1 \
+    --visual_token_num 128 \
     --load-4bit

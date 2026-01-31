@@ -2,6 +2,7 @@ import argparse
 import torch
 import os
 import json
+import time
 from tqdm import tqdm
 import shortuuid
 
@@ -71,7 +72,6 @@ def run_calibrate(args, tokenizer, model, image_processor):
         conv.append_message(conv.roles[0], qs)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
-
         input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).cuda()
 
         stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
@@ -84,7 +84,7 @@ def run_calibrate(args, tokenizer, model, image_processor):
             continue
 
         with torch.inference_mode():
-            output_ids = model.generate(
+            output_ids, visual_token_num = model.generate(
                 input_ids,
                 images=images,
                 # image_sizes=image_sizes,
@@ -92,8 +92,11 @@ def run_calibrate(args, tokenizer, model, image_processor):
                 temperature=0.2,
                 max_new_tokens=1024,
                 use_cache=True,
+                texts=question['value'],
                 stopping_criteria=[stopping_criteria])
-        
+
+        print(f"visual_token_num = {visual_token_num}")
+
         if search_flag == 1:
             search_flag += 1
         elif search_flag == 2:
@@ -120,7 +123,14 @@ def eval_model(args):
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
 
-    tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, args.model_base, model_name, args.load_8bit, args.load_4bit)
+    tokenizer, model, image_processor, context_len = load_pretrained_model(
+        model_path, 
+        args.model_base, 
+        model_name, 
+        args.load_8bit, 
+        args.load_4bit,
+        visual_token_num=args.visual_token_num
+    )
     print(model)
     # calibrate 
     run_calibrate(args, tokenizer, model, image_processor)
@@ -168,16 +178,22 @@ def eval_model(args):
         keywords = [stop_str]
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
 
+        start_time = time.time()
         with torch.inference_mode():
-            output_ids = model.generate(
+            output_ids, visual_token_num = model.generate(
                 input_ids,
                 images=images,
                 # image_sizes=image_sizes,
                 do_sample=True,
                 temperature=0.2,
                 max_new_tokens=1024,
+                texts=question['value'],
                 use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
+
+        duration = time.time() - start_time
+        print(f"Generate for questions {i} cost {duration} s")
+        print(f"visual_token_num = {visual_token_num}")
 
         outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
@@ -208,6 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--single-pred-prompt", action="store_true")
     parser.add_argument("--load-8bit", action="store_true")
     parser.add_argument("--load-4bit", action="store_true")
+    parser.add_argument("--visual_token_num", type=int, default=None)
     args = parser.parse_args()
 
     eval_model(args)

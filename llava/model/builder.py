@@ -27,8 +27,8 @@ from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, D
 # from awq.quantize.quantizer import real_quantize_model_weight, pseudo_quantize_model_weight
 
 
-def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, load_4bit=False, device_map="auto"):
-    kwargs = {"device_map": device_map}
+def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, load_4bit=False, device_map="auto", **kwargs):
+    kwargs = {"device_map": device_map, **kwargs}
     print(load_8bit, load_4bit)
     if load_8bit:
         kwargs['load_in_8bit'] = True
@@ -156,6 +156,11 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
             vision_tower.load_model()
             # cfg_only = CLIPVisionConfig.from_pretrained(vision_tower.vision_tower_name)   # vision_tower.vision_tower_name
             # vision_tower.vision_tower = CLIPVisionModel.from_pretrained(model_path, config=cfg_only)
+        
+        # CDPruner
+        # load CLIP text tower
+        vision_tower.load_text_tower(device_map=device_map)
+        
         vision_tower.to(device='cuda', dtype=torch.float16)
         image_processor = vision_tower.image_processor
 

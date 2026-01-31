@@ -1,6 +1,6 @@
-CHUNKS=8
+CHUNKS=4
 for IDX in $(seq 0 $((CHUNKS-1))); do
-    CUDA_VISIBLE_DEVICES=$((IDX+0)) python -m llava.eval.model_vqa_science \
+    CUDA_VISIBLE_DEVICES=$((IDX+4)) python -m llava.eval.model_vqa_science \
     --model-path /data1/public_data/llava_ckpt/LLaVA-vicuna-7B-v1.3-ScienceQA \
     --question-file /home/wangxinhao/ScienceQA/data/scienceqa/llava_test_QCM-LEA.json \
     --image-folder /home/wangxinhao/ScienceQA/data/scienceqa/images/test \

@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 
-from transformers import CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig, BitsAndBytesConfig
+from transformers import (
+    CLIPVisionModel, CLIPImageProcessor, CLIPVisionConfig, BitsAndBytesConfig, CLIPVisionModelWithProjection,
+    CLIPTokenizerFast, CLIPTextModelWithProjection
+)
 
 
 class CLIPVisionTower(nn.Module):
@@ -15,6 +18,8 @@ class CLIPVisionTower(nn.Module):
         self.select_feature = getattr(args, 'mm_vision_select_feature', 'patch')
 
         if not delay_load:
+            self.load_model()
+        elif getattr(args, 'unfreeze_mm_vision_tower', False):
             self.load_model()
         else:
             self.cfg_only = CLIPVisionConfig.from_pretrained(self.vision_tower_name)
@@ -39,6 +44,18 @@ class CLIPVisionTower(nn.Module):
 
         self.is_loaded = True
 
+    # [CDPruner] Load text tower for CLIP model
+    def load_text_tower(self, device_map=None):
+        CLIPVisionModelWithProjection._no_split_modules = ['CLIPEncoderLayer']
+        vision_tower_with_projection = CLIPVisionModelWithProjection.from_pretrained(self.vision_tower_name, device_map=device_map)
+        self.vision_tower.visual_projection = vision_tower_with_projection.visual_projection
+
+        self.text_tokenizer = CLIPTokenizerFast.from_pretrained(self.vision_tower_name)
+        self.text_tower = CLIPTextModelWithProjection.from_pretrained(self.vision_tower_name, device_map=device_map)
+        self.text_tower.requires_grad_(False)
+
+        self.max_position_embeddings = self.text_tower.config.max_position_embeddings
+
     def feature_select(self, image_forward_outs):
         image_features = image_forward_outs.hidden_states[self.select_layer]
         if self.select_feature == 'patch':
@@ -50,7 +67,7 @@ class CLIPVisionTower(nn.Module):
         return image_features
 
     @torch.no_grad()
-    def forward(self, images):
+    def forward(self, images, texts=None):
         if type(images) is list:
             image_features = []
             for image in images:
@@ -58,8 +75,35 @@ class CLIPVisionTower(nn.Module):
                 image_feature = self.feature_select(image_forward_out).to(image.dtype)
                 image_features.append(image_feature)
         else:
-            image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
-            image_features = self.feature_select(image_forward_outs).to(images.dtype)
+            if texts:
+                # [CDPruner] Get text embeds
+                image_stream = torch.cuda.Stream()
+                text_stream = torch.cuda.Stream()
+                
+                with torch.cuda.stream(image_stream):
+                    image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
+                    image_outputs = self.feature_select(image_forward_outs)
+                    image_features = image_outputs.to(images.dtype)
+                
+                with torch.cuda.stream(text_stream):
+                    text_inputs = self.text_tokenizer(text=texts, return_tensors="pt")
+                    text_segment = (text_inputs.input_ids.shape[1] - 1) // self.max_position_embeddings + 1
+                    text_padding = self.max_position_embeddings * text_segment - text_inputs.input_ids.shape[1]
+                    text_inputs = {
+                        k: torch.cat([v, v.new_zeros((v.shape[0], text_padding))], 
+                                    dim=1).reshape(-1, self.max_position_embeddings).to(device=self.device)
+                        for k, v in text_inputs.items()
+                    }
+                    text_embeds = self.text_tower(**text_inputs).text_embeds
+                
+                torch.cuda.synchronize()
+
+                image_embeds = self.vision_tower.vision_model.post_layernorm(image_outputs)
+                image_embeds = self.vision_tower.visual_projection(image_embeds)
+                image_features = (image_features, image_embeds, text_embeds)           
+            else:
+                image_forward_outs = self.vision_tower(images.to(device=self.device, dtype=self.dtype), output_hidden_states=True)
+                image_features = self.feature_select(image_forward_outs).to(images.dtype)
 
         return image_features
 
