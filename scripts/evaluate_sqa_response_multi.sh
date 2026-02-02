@@ -1,7 +1,7 @@
 #!/bin/bash
 
-CHUNKS=8
-result_path="/home/wangxinhao/QVLM/results/ScienceQA_Prune"
+CHUNKS=4
+result_path="/home/wangxinhao/QVLM/results/ScienceQA_Prune_64"
 output_file="$result_path/LLaVA-vicuna-7B-v1.3-4bit.jsonl"
 
 # Clear out the output file if it exists.

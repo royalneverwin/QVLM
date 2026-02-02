@@ -93,6 +93,7 @@ def run_calibrate(args, tokenizer, model, image_processor):
                 max_new_tokens=1024,
                 use_cache=True,
                 texts=question['value'],
+                add_quant=args.add_quant,
                 stopping_criteria=[stopping_criteria])
 
         print(f"visual_token_num = {visual_token_num}")
@@ -188,6 +189,7 @@ def eval_model(args):
                 temperature=0.2,
                 max_new_tokens=1024,
                 texts=question['value'],
+                add_quant=args.add_quant,
                 use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
 
@@ -225,6 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--load-8bit", action="store_true")
     parser.add_argument("--load-4bit", action="store_true")
     parser.add_argument("--visual_token_num", type=int, default=None)
+    parser.add_argument("--add_quant", action="store_true")
     args = parser.parse_args()
 
     eval_model(args)

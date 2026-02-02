@@ -115,6 +115,7 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         images: Optional[torch.Tensor] = None,
         image_sizes: Optional[torch.Tensor] = None,
         texts: Optional[str] = None,
+        add_quant: Optional[bool] = False,
         **kwargs,
     ) -> Union[GenerateOutput, torch.LongTensor]:
         position_ids = kwargs.pop("position_ids", None)
@@ -139,7 +140,8 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
                 None,
                 images,
                 image_sizes=image_sizes,
-                texts=texts
+                texts=texts,
+                add_quant=add_quant
             )
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)

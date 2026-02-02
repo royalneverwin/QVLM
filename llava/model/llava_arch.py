@@ -137,7 +137,7 @@ class LlavaMetaForCausalLM(ABC):
     def get_vision_tower(self):
         return self.get_model().get_vision_tower()
 
-    def encode_images(self, images, texts=None):
+    def encode_images(self, images, texts=None, add_quant=False):
         if self.visual_token_num:
             # [CDPruner] Generate index masks using conditional DPP
             image_features, image_embeds, text_embeds = self.get_model().get_vision_tower()(images, texts=texts)
@@ -160,19 +160,20 @@ class LlavaMetaForCausalLM(ABC):
             relevance = (-relevance).mean(dim=-1) # (B, N)
             
             # [Quantization-Aware] Calculate quantization sensitivity (L2 norm)
-            # High magnitude tokens are sensitive outliers that should be preserved.
-            quant_sensitivity = image_features.norm(dim=-1) # (B, N)
-            
-            # Normalize both scores to [0, 1]
-            relevance_min, relevance_max = relevance.min(), relevance.max()
-            relevance = (relevance - relevance_min + 1e-6) / (relevance_max - relevance_min + 1e-6)
-            
-            quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()
-            quant_sensitivity = (quant_sensitivity - quant_min + 1e-6) / (quant_max - quant_min + 1e-6)
-            
-            # Fuse scores (alpha=0.7 for semantic preference)
-            alpha = 0.7
-            relevance = alpha * relevance + (1 - alpha) * quant_sensitivity
+            if add_quant:
+                # High magnitude tokens are sensitive outliers that should be preserved.
+                quant_sensitivity = image_features.norm(dim=-1) # (B, N)
+                
+                # Normalize both scores to [0, 1]
+                relevance_min, relevance_max = relevance.min(), relevance.max()
+                relevance = (relevance - relevance_min + 1e-6) / (relevance_max - relevance_min + 1e-6)
+                
+                quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()
+                quant_sensitivity = (quant_sensitivity - quant_min + 1e-6) / (quant_max - quant_min + 1e-6)
+                
+                # Fuse scores (alpha=0.7 for semantic preference)
+                alpha = 0.7
+                relevance = alpha * relevance + (1 - alpha) * quant_sensitivity
 
             # [CDPruner] Construct kernel matrix
             # You can use an additional hyperparameter theta to control the influence of the relevance score.
@@ -207,7 +208,7 @@ class LlavaMetaForCausalLM(ABC):
 
     def prepare_inputs_labels_for_multimodal(
         self, input_ids, position_ids, attention_mask, past_key_values, labels,
-        images, image_sizes=None, texts=None
+        images, image_sizes=None, texts=None, add_quant=False
     ):
         vision_tower = self.get_vision_tower()
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
@@ -219,7 +220,7 @@ class LlavaMetaForCausalLM(ABC):
                 if type(images) is list:
                     images = [x.unsqueeze(0) if x.ndim == 3 else x for x in images]
                 concat_images = torch.cat([image for image in images], dim=0)
-                image_features, index_masks = self.encode_images(concat_images, texts=texts)
+                image_features, index_masks = self.encode_images(concat_images, texts=texts, add_quant=add_quant)
                 split_sizes = [image.shape[0] for image in images]
                 image_features = torch.split(image_features, split_sizes, dim=0)
                 index_masks = torch.split(index_masks, split_sizes, dim=0)
@@ -290,7 +291,7 @@ class LlavaMetaForCausalLM(ABC):
                 else:
                     raise ValueError(f"Unexpected mm_patch_merge_type: {self.config.mm_patch_merge_type}")
             else:
-                image_features, index_masks = self.encode_images(images, texts=texts)
+                image_features, index_masks = self.encode_images(images, texts=texts, add_quant=add_quant)
                 image_features = image_features[index_masks].unsqueeze(0)
         else:
             if type(images) is list or images.ndim == 5:
