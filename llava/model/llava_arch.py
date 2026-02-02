@@ -158,7 +158,21 @@ class LlavaMetaForCausalLM(ABC):
             text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True) # (M, C)
             relevance = torch.matmul(image_embeds, text_embeds.t()) # (B, N, M)
             relevance = (-relevance).mean(dim=-1) # (B, N)
-            relevance = (relevance - relevance.min() + 1e-6) / (relevance.max() - relevance.min()) # (B, N)
+            
+            # [Quantization-Aware] Calculate quantization sensitivity (L2 norm)
+            # High magnitude tokens are sensitive outliers that should be preserved.
+            quant_sensitivity = image_features.norm(dim=-1) # (B, N)
+            
+            # Normalize both scores to [0, 1]
+            relevance_min, relevance_max = relevance.min(), relevance.max()
+            relevance = (relevance - relevance_min + 1e-6) / (relevance_max - relevance_min + 1e-6)
+            
+            quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()
+            quant_sensitivity = (quant_sensitivity - quant_min + 1e-6) / (quant_max - quant_min + 1e-6)
+            
+            # Fuse scores (alpha=0.7 for semantic preference)
+            alpha = 0.7
+            relevance = alpha * relevance + (1 - alpha) * quant_sensitivity
 
             # [CDPruner] Construct kernel matrix
             # You can use an additional hyperparameter theta to control the influence of the relevance score.
