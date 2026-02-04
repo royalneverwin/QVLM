@@ -93,6 +93,7 @@ def run_calibrate(args, tokenizer, model, image_processor):
                 max_new_tokens=1024,
                 use_cache=True,
                 texts=question['value'],
+                add_quant=args.add_quant,
                 stopping_criteria=[stopping_criteria])
 
         print(f"visual_token_num = {visual_token_num}")
@@ -131,7 +132,7 @@ def eval_model(args):
         args.load_4bit,
         visual_token_num=args.visual_token_num
     )
-    # print(model)
+    print(model)
     # calibrate 
     run_calibrate(args, tokenizer, model, image_processor)
     
@@ -140,11 +141,7 @@ def eval_model(args):
     answers_file = os.path.expanduser(args.answers_file)
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
     ans_file = open(answers_file, "w")
-    
-    if args.test_len: # for each CUDA_DEVICES
-        questions = questions[:args.test_len]
     for i, line in enumerate(tqdm(questions)):
-        print(f"For chunk {args.chunk_idx}, processing question {i}/{len(questions)}")
         idx = line["id"]
         question = line['conversations'][0]
         gt_ans = line["conversations"][1]
@@ -192,13 +189,10 @@ def eval_model(args):
                 temperature=0.2,
                 max_new_tokens=1024,
                 texts=question['value'],
+                add_quant=args.add_quant,
                 use_cache=True,)
-            # res = model.forward(
-            #     input_ids,
-            #     images=images,
-            #     # image_sizes=image_sizes,
-            #     use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
+
         duration = time.time() - start_time
         print(f"Generate for questions {i} cost {duration} s")
         print(f"visual_token_num = {visual_token_num}")
@@ -213,7 +207,6 @@ def eval_model(args):
                                    "model_id": model_name,
                                    "metadata": {}}) + "\n")
         ans_file.flush()
-        print(f"For chunk {args.chunk_idx}, end question {i}/{len(questions)}")
 
     ans_file.close()
 
@@ -234,7 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--load-8bit", action="store_true")
     parser.add_argument("--load-4bit", action="store_true")
     parser.add_argument("--visual_token_num", type=int, default=None)
-    parser.add_argument("--test_len", type=int, default=None)
+    parser.add_argument("--add_quant", action="store_true")
     args = parser.parse_args()
 
     eval_model(args)
