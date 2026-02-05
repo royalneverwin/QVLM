@@ -158,14 +158,20 @@ def eval_model(args):
     
     if args.test_len: # for each CUDA_DEVICES
         questions = questions[:args.test_len]
-        
+    
+    cnt = 0
+    if len(questions) == len(existing_question_ids):
+        print("All questions have been answered already. Exiting evaluation.")
+        ans_file.close()
+        return
+ 
     for i, line in enumerate(tqdm(questions)):
         idx = line["id"]
         
         # Check if question already answered
         if idx in existing_question_ids:
             continue
-
+        cnt += 1
         question = line['conversations'][0]
         gt_ans = line["conversations"][1]
         qs = question['value'].replace('<image>', '').strip()
@@ -234,9 +240,9 @@ def eval_model(args):
     ans_file.close()
     
     # Report stats
-    print(f"Total existing answers: {len(existing_question_ids)}")
+    print(f"Total existing answers: {len(existing_question_ids)+cnt}")
     print(f"Total questions processed: {len(questions)}")
-    print(f"Difference (New/Unanswered): {len(questions) - len(existing_question_ids) if len(questions) > len(existing_question_ids) else 0}") # Note: This logic is simple, might be negative if existing covers more than current chunk/test_len
+    print(f"Difference (New/Unanswered): {len(questions) - len(existing_question_ids) - cnt}") # Note: This logic is simple, might be negative if existing covers more than current chunk/test_len
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
