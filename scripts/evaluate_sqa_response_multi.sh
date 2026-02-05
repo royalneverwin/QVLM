@@ -1,15 +1,15 @@
 #!/bin/bash
 
 CHUNKS=8
-result_path="/home/wangxinhao/QVLM/results/tmp"
-output_file="$result_path/LLaVA-vicuna-7B-v1.3-4bit.jsonl"
+result_path="/home/wangxinhao/QVLM/results/ScienceQA_Prune_128"
+output_file="$result_path/LLaVA-vicuna-7B-v1.3-4bit-test400.jsonl"
 
 # Clear out the output file if it exists.
 > "$output_file"
 
 # Loop through the indices and concatenate each file.
 for idx in $(seq 0 $((CHUNKS-1))); do
-  cat "$result_path/LLaVA-vicuna-7B-v1.3-4bit-chunk${idx}.jsonl" >> "$output_file"
+  cat "$result_path/LLaVA-vicuna-7B-v1.3-4bit-test400-chunk${idx}.jsonl" >> "$output_file"
 done
 
 CUDA_VISIBLE_DEVICES=7 python llava/eval/eval_science_qa.py \

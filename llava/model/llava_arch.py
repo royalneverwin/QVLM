@@ -138,7 +138,7 @@ class LlavaMetaForCausalLM(ABC):
         return self.get_model().get_vision_tower()
 
     def encode_images(self, images, texts=None, add_quant=False):
-        if self.visual_token_num:
+        if self.visual_token_num and texts is not None:
             # [CDPruner] Generate index masks using conditional DPP
             image_features, image_embeds, text_embeds = self.get_model().get_vision_tower()(images, texts=texts)
             
@@ -158,7 +158,6 @@ class LlavaMetaForCausalLM(ABC):
             text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True) # (M, C)
             relevance = torch.matmul(image_embeds, text_embeds.t()) # (B, N, M)
             relevance = (-relevance).mean(dim=-1) # (B, N)
-            
             # [Quantization-Aware] Calculate quantization sensitivity (L2 norm)
             if add_quant:
                 # High magnitude tokens are sensitive outliers that should be preserved.
@@ -214,7 +213,7 @@ class LlavaMetaForCausalLM(ABC):
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
             return input_ids, position_ids, attention_mask, past_key_values, None, labels
         
-        if self.visual_token_num:
+        if self.visual_token_num and texts is not None:
             # [CDPruner] Prune visual tokens
             if type(images) is list or images.ndim == 5:
                 if type(images) is list:

@@ -7,4 +7,5 @@ CUDA_VISIBLE_DEVICES=6 python -m llava.eval.model_vqa_science \
     --answers-file /home/wangxinhao/QVLM/results/tmp/LLaVA-vicuna-7B-v1.3-4bit.jsonl \
     --conv-mode llava_v1 \
     --visual_token_num 128 \
+    --add_quant \
     --load-4bit
