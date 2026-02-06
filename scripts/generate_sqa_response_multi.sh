@@ -1,6 +1,9 @@
-CHUNKS=8
+GPU_IDS=(0 1 2 3 4 5 7)
+CHUNKS=${#GPU_IDS[@]}
+
 for IDX in $(seq 0 $((CHUNKS-1))); do
-    CUDA_VISIBLE_DEVICES=$((IDX+0)) python -m llava.eval.model_vqa_science \
+    GPU_ID=${GPU_IDS[$IDX]}
+    CUDA_VISIBLE_DEVICES=${GPU_ID} python -m llava.eval.model_vqa_science \
     --model-path /data1/public_data/llava_ckpt/LLaVA-vicuna-7B-v1.3-ScienceQA \
     --question-file /home/wangxinhao/ScienceQA/data/scienceqa/llava_test_QCM-LEA.json \
     --image-folder /home/wangxinhao/ScienceQA/data/scienceqa/images/test \
