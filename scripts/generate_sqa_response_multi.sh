@@ -6,9 +6,9 @@ for IDX in $(seq 0 $((CHUNKS-1))); do
     --image-folder /home/wangxinhao/ScienceQA/data/scienceqa/images/test \
     --question-file-calibrate /home/wangxinhao/ScienceQA/data/scienceqa/llava_train_QCM-LEA.json \
     --image-folder-calibrate /home/wangxinhao/ScienceQA/data/scienceqa/images/train \
-    --answers-file /home/wangxinhao/QVLM/results/tmp/LLaVA-vicuna-7B-v1.3-4bit-chunk$CHUNKS_$IDX.jsonl \
+    --answers-file /home/wangxinhao/QVLM/results/ScienceQA/LLaVA-vicuna-7B-v1.3-4bit-chunk$CHUNKS_$IDX.jsonl \
     --num-chunks $CHUNKS \
     --chunk-idx $IDX \
-    --load-4bit \
+    # --load-4bit \
     --conv-mode llava_v1  &
 done

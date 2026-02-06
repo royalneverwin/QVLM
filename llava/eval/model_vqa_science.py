@@ -92,8 +92,8 @@ def run_calibrate(args, tokenizer, model, image_processor):
                 temperature=0.2,
                 max_new_tokens=1024,
                 use_cache=True,
-                # texts=question['value'],
-                # add_quant=args.add_quant,
+                texts=question['value'] if args.visual_token_num else None,
+                add_quant=args.add_quant if args.visual_token_num else False,
                 stopping_criteria=[stopping_criteria])
 
         print(f"visual_token_num = {visual_token_num}")
@@ -142,8 +142,8 @@ def eval_model(args):
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
     ans_file = open(answers_file, "w")
     
-    if args.test_len: # for each CUDA_DEVICES
-        questions = questions[:args.test_len]
+    cnt = 0
+
     for i, line in enumerate(tqdm(questions)):
         idx = line["id"]
         question = line['conversations'][0]
@@ -163,7 +163,13 @@ def eval_model(args):
                 qs = DEFAULT_IMAGE_TOKEN + '\n' + qs
 
             cur_prompt = '<image>' + '\n' + cur_prompt
+            if args.test_len:
+                cnt += 1
+                if cnt > args.test_len:
+                    break
         else:
+            if args.test_len: # pass non image questions
+                continue
             images = None
             image_sizes = None
 
@@ -191,8 +197,8 @@ def eval_model(args):
                 do_sample=True,
                 temperature=0.2,
                 max_new_tokens=1024,
-                texts=question['value'],
-                add_quant=args.add_quant,
+                texts=question['value'] if args.visual_token_num else None,
+                add_quant=args.add_quant if args.visual_token_num else False,
                 use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
 

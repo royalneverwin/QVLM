@@ -162,6 +162,12 @@ if __name__ == "__main__":
     SCOtotal = len(subject_results['SCOcorrect'])+len(subject_results['SCOincorrect'])
     LANcorrect = len(subject_results['LANcorrect'])
     LANtotal = len(subject_results['LANcorrect'])+len(subject_results['LANincorrect'])
+    if NATtotal ==0:
+        NATtotal = 1
+    if SCOtotal ==0:
+        SCOtotal = 1
+    if LANtotal ==0:
+        LANtotal = 1
     print(f'NATAccuracy: {NATcorrect / NATtotal * 100:.2f}%')
     print(f'SCOAccuracy: {SCOcorrect / SCOtotal * 100:.2f}%')
     print(f'LANAccuracy: {LANcorrect / LANtotal * 100:.2f}%')
@@ -176,6 +182,12 @@ if __name__ == "__main__":
     IMGtotal = len(context_results['IMGcorrect'])+len(context_results['IMGincorrect'])
     NOcorrect = len(context_results['NOcorrect'])
     NOtotal = len(context_results['NOcorrect'])+len(context_results['NOincorrect'])
+    if TXTtotal ==0:
+        TXTtotal = 1
+    if IMGtotal ==0:
+        IMGtotal = 1
+    if NOtotal ==0:
+        NOtotal = 1
     print(f'TXTAccuracy: {TXTcorrect / TXTtotal * 100:.2f}%')
     print(f'IMGAccuracy: {IMGcorrect / IMGtotal * 100:.2f}%')
     print(f'NOAccuracy: {NOcorrect / NOtotal * 100:.2f}%')
@@ -188,6 +200,10 @@ if __name__ == "__main__":
     G1total = len(grade_results['G1correct'])+len(grade_results['G1incorrect'])
     G7correct = len(grade_results['G7correct'])
     G7total = len(grade_results['G7correct'])+len(grade_results['G7incorrect'])
+    if G1total ==0:
+        G1total = 1
+    if G7total ==0:
+        G7total = 1
     print(f'G1Accuracy: {G1correct / G1total * 100:.2f}%')
     print(f'G7Accuracy: {G7correct / G7total * 100:.2f}%')
     sqa_results['G1acc'] = G1correct / G1total * 100
