@@ -28,6 +28,7 @@ dependencies = [
     "requests",
     "scikit-learn==1.2.2",
     "sentencepiece==0.1.99",
+    "setuptools>=82.0.0",
     "shortuuid",
     "timm==0.6.13",
     "tokenizers>=0.12.1",
