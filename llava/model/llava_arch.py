@@ -137,7 +137,7 @@ class LlavaMetaForCausalLM(ABC):
     def get_vision_tower(self):
         return self.get_model().get_vision_tower()
 
-    def encode_images(self, images, texts=None, add_quant=False):
+    def encode_images(self, images, texts=None, add_quant=False, alpha=0.7):
         if self.visual_token_num is not None and texts is not None:
             # [CDPruner] Generate index masks using conditional DPP
             image_features, image_embeds, text_embeds = self.get_model().get_vision_tower()(images, texts=texts)
@@ -171,7 +171,6 @@ class LlavaMetaForCausalLM(ABC):
                 quant_sensitivity = (quant_sensitivity - quant_min + 1e-6) / (quant_max - quant_min + 1e-6)
                 
                 # Fuse scores (alpha=0.7 for semantic preference)
-                alpha = 0.7
                 relevance = alpha * relevance + (1 - alpha) * quant_sensitivity
 
             # [CDPruner] Construct kernel matrix
@@ -207,7 +206,7 @@ class LlavaMetaForCausalLM(ABC):
 
     def prepare_inputs_labels_for_multimodal(
         self, input_ids, position_ids, attention_mask, past_key_values, labels,
-        images, image_sizes=None, texts=None, add_quant=False
+        images, image_sizes=None, texts=None, add_quant=False, alpha=0.7
     ):
         vision_tower = self.get_vision_tower()
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
@@ -219,7 +218,7 @@ class LlavaMetaForCausalLM(ABC):
                 if type(images) is list:
                     images = [x.unsqueeze(0) if x.ndim == 3 else x for x in images]
                 concat_images = torch.cat([image for image in images], dim=0)
-                image_features, index_masks = self.encode_images(concat_images, texts=texts, add_quant=add_quant)
+                image_features, index_masks = self.encode_images(concat_images, texts=texts, add_quant=add_quant, alpha=alpha)
                 split_sizes = [image.shape[0] for image in images]
                 image_features = torch.split(image_features, split_sizes, dim=0)
                 index_masks = torch.split(index_masks, split_sizes, dim=0)
@@ -290,7 +289,7 @@ class LlavaMetaForCausalLM(ABC):
                 else:
                     raise ValueError(f"Unexpected mm_patch_merge_type: {self.config.mm_patch_merge_type}")
             else:
-                image_features, index_masks = self.encode_images(images, texts=texts, add_quant=add_quant)
+                image_features, index_masks = self.encode_images(images, texts=texts, add_quant=add_quant, alpha=alpha)
                 image_features = image_features[index_masks].unsqueeze(0)
         else:
             if type(images) is list or images.ndim == 5:

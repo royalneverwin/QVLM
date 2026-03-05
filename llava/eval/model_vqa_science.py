@@ -197,6 +197,7 @@ def eval_model(args):
                 max_new_tokens=1024,
                 texts=question['value'] if args.visual_token_num else None,
                 add_quant=args.add_quant if args.visual_token_num else False,
+                alpha=args.alpha if args.visual_token_num else 0.7,
                 use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
 
@@ -235,6 +236,7 @@ if __name__ == "__main__":
     parser.add_argument("--load-4bit", action="store_true")
     parser.add_argument("--visual_token_num", type=int, default=None)
     parser.add_argument("--add_quant", action="store_true")
+    parser.add_argument("--alpha", type=float, default=0.7)
     parser.add_argument("--test_len", type=int, default=None)
     args = parser.parse_args()
 
