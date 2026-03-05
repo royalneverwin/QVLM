@@ -92,8 +92,6 @@ def run_calibrate(args, tokenizer, model, image_processor):
                 temperature=0.2,
                 max_new_tokens=1024,
                 use_cache=True,
-                texts=question['value'] if args.visual_token_num else None,
-                add_quant=args.add_quant if args.visual_token_num else False,
                 stopping_criteria=[stopping_criteria])
 
         print(f"visual_token_num = {visual_token_num}")
