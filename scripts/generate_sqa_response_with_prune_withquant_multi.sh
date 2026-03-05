@@ -1,4 +1,6 @@
 CHUNKS=8
+ALPHA=0.8
+VISUAL_TOKEN_NUM=32
 for IDX in $(seq 0 $((CHUNKS-1))); do
     CUDA_VISIBLE_DEVICES=$((IDX+0)) python -m llava.eval.model_vqa_science \
     --model-path /mnt/bn/yufei1900/wangxinhao/paper/checkpoint/LLaVA-vicuna-7B-v1.3-ScienceQA \
@@ -6,11 +8,12 @@ for IDX in $(seq 0 $((CHUNKS-1))); do
     --image-folder /mnt/bn/yufei1900/wangxinhao/paper/ScienceQA/data/scienceqa/images/test \
     --question-file-calibrate /mnt/bn/yufei1900/wangxinhao/paper/ScienceQA/data/scienceqa/llava_train_QCM-LEA.json \
     --image-folder-calibrate /mnt/bn/yufei1900/wangxinhao/paper/ScienceQA/data/scienceqa/images/train \
-    --answers-file /mnt/bn/yufei1900/wangxinhao/paper/QVLM/results/4_Bit_32_tokens_withquant/LLaVA-vicuna-7B-v1.3-4bit-chunk$CHUNKS_$IDX.jsonl \
+    --answers-file /mnt/bn/yufei1900/wangxinhao/paper/QVLM/results/4_Bit_${VISUAL_TOKEN_NUM}_tokens_withquant_alpha_${ALPHA}/LLaVA-vicuna-7B-v1.3-4bit-chunk$CHUNKS_$IDX.jsonl \
     --num-chunks $CHUNKS \
     --chunk-idx $IDX \
     --load-4bit \
-    --visual_token_num 32 \
+    --visual_token_num $VISUAL_TOKEN_NUM \
     --add_quant \
+    --alpha $ALPHA \
     --conv-mode llava_v1  &
 done

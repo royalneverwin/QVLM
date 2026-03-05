@@ -160,6 +160,7 @@ class LlavaMetaForCausalLM(ABC):
             relevance = (-relevance).mean(dim=-1) # (B, N)
             # [Quantization-Aware] Calculate quantization sensitivity (L2 norm)
             if add_quant:
+                print("Super Parameter alpha:", alpha)
                 # High magnitude tokens are sensitive outliers that should be preserved.
                 quant_sensitivity = image_features.norm(dim=-1) # (B, N)
                 
