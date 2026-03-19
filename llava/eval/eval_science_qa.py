@@ -32,7 +32,7 @@ def get_pred_idx(prediction, choices, options):
     if prediction in options[:len(choices)]:
         return options.index(prediction)
     else:
-        return random.choice(range(len(choices)))
+        return -1
 
 
 if __name__ == "__main__":

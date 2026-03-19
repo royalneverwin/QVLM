@@ -88,8 +88,8 @@ def run_calibrate(args, tokenizer, model, image_processor):
                 input_ids,
                 images=images,
                 # image_sizes=image_sizes,
-                do_sample=True,
-                temperature=0.2,
+                do_sample=False,
+                # temperature=0.2,
                 max_new_tokens=1024,
                 use_cache=True,
                 stopping_criteria=[stopping_criteria])
@@ -192,12 +192,14 @@ def eval_model(args):
                 input_ids,
                 images=images,
                 # image_sizes=image_sizes,
-                do_sample=True,
-                temperature=0.2,
+                do_sample=False,
+                # temperature=0.2,
                 max_new_tokens=1024,
                 texts=question['value'] if args.visual_token_num else None,
                 add_quant=args.add_quant if args.visual_token_num else False,
                 alpha=args.alpha if args.visual_token_num else 0.7,
+                dynamic_alpha=args.dynamic_alpha if args.visual_token_num else False,
+                quant_method=args.quant_method if args.visual_token_num else "l2_norm",
                 use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
 
@@ -238,6 +240,8 @@ if __name__ == "__main__":
     parser.add_argument("--add_quant", action="store_true")
     parser.add_argument("--alpha", type=float, default=0.7)
     parser.add_argument("--test_len", type=int, default=None)
+    parser.add_argument("--dynamic_alpha", action="store_true", default=False)
+    parser.add_argument("--quant_method", type=str, default="l2_norm")
     args = parser.parse_args()
 
     eval_model(args)
