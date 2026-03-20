@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
 import torch
 import numpy as np
@@ -79,7 +80,7 @@ def visualize(args):
         cur_prompt = qs
         
         # Output directory for this specific question
-        output_dir = os.path.join(args.output_folder, str(question_id))
+        output_dir = args.output_folder
         os.makedirs(output_dir, exist_ok=True)
 
         image_path = os.path.join(args.image_folder, image_file)
@@ -90,6 +91,15 @@ def visualize(args):
         image = Image.open(image_path)
         image_tensor = image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
         images = image_tensor.unsqueeze(0).half().cuda()
+
+        image_mean = image_processor.image_mean
+        image_std = image_processor.image_std
+        resized_image = image_tensor.permute(1, 2, 0)
+        resized_image = resized_image * torch.tensor(image_std) + torch.tensor(image_mean)
+        resized_image = (resized_image.numpy() * 255).astype(np.uint8)
+        resized_image = Image.fromarray(resized_image)
+        resized_image = resized_image.resize((336, 336))
+        original_image = np.array(resized_image)
 
         if getattr(model.config, 'mm_use_im_start_end', False):
             qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + '\n' + qs
@@ -110,47 +120,41 @@ def visualize(args):
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
 
         with torch.no_grad():
-            image_features, image_embeds, text_embeds = self.get_model().get_vision_tower()(
+            image_features, image_embeds, text_embeds = model.get_model().get_vision_tower()(
                 images, 
                 texts=sample['conversations'][0]['value']
             )
 
             # --- 1. Compute Base Relevance (CDPruner style) ---
-            # Normalize
-            image_embeds_norm = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True)
-            text_embeds_norm = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True)
-            
             # Relevance (negative cosine similarity as in CDPruner code)
-            relevance = torch.matmul(image_embeds_norm, text_embeds_norm.t()) # (N, 1)
-            relevance = -relevance.squeeze(-1) # (N,)
+            image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True) # (B, N, C)
+            text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True) # (M, C)
+            relevance = torch.matmul(image_embeds, text_embeds.t()) # (B, N, M)
+            relevance = (-relevance).mean(dim=-1) # (B, N)
             
             # Normalize relevance to [0, 1]
             relevance_min, relevance_max = relevance.min(), relevance.max()
-            relevance_norm = (relevance - relevance_min + 1e-6) / (relevance_max - relevance_min + 1e-6)
+            relevance_norm = (relevance - relevance_min + 1e-8) / (relevance_max - relevance_min + 1e-8)
             
             # --- 2. Compute Quantization Sensitivity ---
             quant_sensitivity = image_features.norm(dim=-1) # (N,)
             quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()
-            quant_norm = (quant_sensitivity - quant_min + 1e-6) / (quant_max - quant_min + 1e-6)
+            quant_norm = (quant_sensitivity - quant_min + 1e-8) / (quant_max - quant_min + 1e-8)
             
             # --- 3. Compute Similarity Matrix ---
-            image_features_norm = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
-            similarity = torch.matmul(image_features_norm, image_features_norm.t()) # (N, N)
-            
-            # Expand dims for batch processing format (B=1)
-            relevance_norm_b = relevance_norm.unsqueeze(0)
-            quant_norm_b = quant_norm.unsqueeze(0)
-            similarity_b = similarity.unsqueeze(0)
+            image_normalized = image_features / image_features.norm(dim=-1, keepdim=True) # (B, N, D)
+            image_normalized = image_normalized.float() # (B, N, D)
+            similarity = torch.matmul(image_normalized, image_normalized.transpose(1, 2)) # (B, N, N)
             
             # --- Selection 1: Standard CDPruner ---
-            kernel_base = relevance_norm_b.unsqueeze(2) * similarity_b * relevance_norm_b.unsqueeze(1)
+            kernel_base = relevance.unsqueeze(2) * similarity * relevance.unsqueeze(1)
             select_base = fast_map_dpp(kernel_base, args.visual_token_num)[0]
             mask_base = create_mask_image(select_base)
             
             # --- Selection 2: Quant-Aware CDPruner ---
             alpha = args.alpha
-            fused_relevance = alpha * relevance_norm_b + (1 - alpha) * quant_norm_b
-            kernel_quant = fused_relevance.unsqueeze(2) * similarity_b * fused_relevance.unsqueeze(1)
+            fused_relevance = alpha * relevance_norm + (1 - alpha) * quant_norm
+            kernel_quant = fused_relevance.unsqueeze(2) * similarity * fused_relevance.unsqueeze(1)
             select_quant = fast_map_dpp(kernel_quant, args.visual_token_num)[0]
             mask_quant = create_mask_image(select_quant)
             
@@ -194,7 +198,7 @@ def visualize(args):
             plt.savefig(os.path.join(output_dir, f"{question_id}_comparison.png"))
             plt.close()
             
-            print(f"Processed QID: {question_id}")
+            print(f"Processed QID: {question_id}, text: {sample['conversations'][0]['value']}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -204,6 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-folder", type=str, default="playground/data/visualize")
     parser.add_argument("--visual_token_num", type=int, default=None)
     parser.add_argument("--alpha", type=float, default=0.7, help="Fusion weight for Quant-Aware method")
+    parser.add_argument("--conv-mode", type=str, default="llava_v0")
     args = parser.parse_args()
 
     visualize(args)
