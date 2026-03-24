@@ -1,7 +1,7 @@
 #!/bin/bash
 
 CHUNKS=8
-result_path="/mnt/bn/yufei1900/wangxinhao/paper/QVLM_2/results/4_Bit_32_tokens_withquant_alpha_dynamic_method_quant_error_group"
+result_path="/mnt/bn/yufei1900/wangxinhao/paper/QVLM_2/results/4_Bit_32_tokens_withquant_alpha_0.55_method_complex"
 
 output_file="$result_path/LLaVA-vicuna-7B-v1.3-4bit.jsonl"
 

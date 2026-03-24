@@ -186,6 +186,11 @@ def eval_model(args):
         keywords = [stop_str]
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
 
+        texts = cur_prompt.replace("<image>\n", "")
+        # question = question.split('\nA. ')[0]
+        # question = question.split('\n')[-1]
+        texts = texts.replace("\nAnswer with the option's letter from the given choices directly.", "")
+
         start_time = time.time()
         with torch.inference_mode():
             output_ids, visual_token_num = model.generate(
@@ -195,7 +200,7 @@ def eval_model(args):
                 do_sample=False,
                 # temperature=0.2,
                 max_new_tokens=1024,
-                texts=question['value'] if args.visual_token_num else None,
+                texts=texts if args.visual_token_num else None,
                 add_quant=args.add_quant if args.visual_token_num else False,
                 alpha=args.alpha if args.visual_token_num else 0.7,
                 dynamic_alpha=args.dynamic_alpha if args.visual_token_num else False,

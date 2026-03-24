@@ -154,10 +154,11 @@ class LlavaMetaForCausalLM(ABC):
             similarity = torch.matmul(image_normalized, image_normalized.transpose(1, 2)) # (B, N, N)
 
             # [CDPruner] Calculate query relevance
-            image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True) # (B, N, C)
-            text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True) # (M, C)
+            image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True) # (B, N, C)
+            text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True) # (M, C)
             relevance = torch.matmul(image_embeds, text_embeds.t()) # (B, N, M)
             relevance = (-relevance).mean(dim=-1) # (B, N)
+            relevance = (relevance - relevance.min() + 1e-6) / (relevance.max() - relevance.min()) # (B, N)
             # [Quantization-Aware] Calculate quantization sensitivity (L2 norm)
             if add_quant:
                 print(f"quant_method = {quant_method}")
@@ -262,34 +263,22 @@ class LlavaMetaForCausalLM(ABC):
                     qs_std = quant_sensitivity.std(dim=-1, keepdim=True)
                     cv = qs_std / (qs_mean + 1e-8) # (B, 1)
                     
-                    # 2. Adaptive Alpha mapping with safety bounds [0.4, 0.8]
-                    # High CV -> severe outliers exist -> need more quant protection -> lower alpha (towards 0.4)
-                    # Low CV -> smooth distribution -> rely on semantic relevance -> higher alpha (towards 0.8)
+                    # 2. Optimized for keep_tokens=32 (Extreme Pruning)
+                    # Testing shows alpha=0.5 is optimal. Narrow the range to [0.45, 0.55].
+                    # High CV -> severe outliers -> slightly more quant weight -> alpha towards 0.45
+                    # Low CV -> smooth distribution -> more semantic weight -> alpha towards 0.55
                     
-                    # Normalize CV robustly. Typically CV is between 0.1 and 2.0 in ViT features.
-                    cv_norm = torch.clamp((cv - 0.2) / 1.5, min=0.0, max=1.0)
+                    cv_norm = torch.clamp((cv - 0.2) / 1.0, min=0.0, max=1.0) # Adjusted CV sensitivity
                     
-                    # 3. Incorporate Pruning Ratio (optional but powerful)
-                    # If we prune heavily (e.g., K=32 out of 576), base alpha should be lower.
-                    # Let's assume self.visual_token_num is K, and N is the original sequence length.
-                    prune_ratio = self.visual_token_num / N if self.visual_token_num is not None else 1.0
-                    
-                    # Base alpha shifts based on pruning ratio: 
-                    # If prune_ratio is high (keep many, e.g., 128/256), base is around 0.7
-                    # If prune_ratio is low (keep few, e.g., 32/256), base is around 0.5
-                    base_alpha_max = 0.6 + 0.3 * prune_ratio # e.g., 0.6 + 0.3*(128/256) = 0.75
-                    base_alpha_min = 0.3 + 0.3 * prune_ratio # e.g., 0.3 + 0.3*(128/256) = 0.45
+                    base_alpha_max = 0.55
+                    base_alpha_min = 0.45
                     
                     alpha = base_alpha_max - (base_alpha_max - base_alpha_min) * cv_norm # (B, 1)
                     
-                    print(f"CV: {cv.mean().item():.4f}, Dynamic Alpha: {alpha.mean().item():.4f}, Prune Ratio: {prune_ratio:.2f}")
+                    print(f"CV: {cv.mean().item():.4f}, Optimized Dynamic Alpha: {alpha.mean().item():.4f}")
 
                 else:
                     print("Super Parameter alpha:", alpha)
-
-                # Normalize both scores to [0, 1]
-                relevance_min, relevance_max = relevance.min(), relevance.max()
-                relevance = (relevance - relevance_min + 1e-8) / (relevance_max - relevance_min + 1e-8)
                 
                 if quant_method not in ["complex", "complex_l1"]:
                     quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()

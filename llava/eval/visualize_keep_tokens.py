@@ -39,13 +39,13 @@ def fast_map_dpp(kernel, k):
     select_idx = torch.sort(select_idx.t()).values # (B, k)
     return select_idx
 
-def create_mask_image(select_idx, num_patches_side=24, patch_size=14, target_size=336):
+def create_mask_image(select_idx, num_patches_side=24, patch_size=14, target_size=256):
     """
     Creates a heatmap where selected tokens are highlighted.
     select_idx: (k,) tensor of selected indices
     """
     mask = torch.zeros((num_patches_side * num_patches_side,))
-    mask[select_idx] = 1.0
+    mask[select_idx.cpu()] = 1.0
     mask = mask.reshape(1, 1, num_patches_side, num_patches_side)
     mask = F.interpolate(mask, size=(target_size, target_size), mode='nearest')
     mask = mask.squeeze().numpy()
@@ -98,7 +98,7 @@ def visualize(args):
         resized_image = resized_image * torch.tensor(image_std) + torch.tensor(image_mean)
         resized_image = (resized_image.numpy() * 255).astype(np.uint8)
         resized_image = Image.fromarray(resized_image)
-        resized_image = resized_image.resize((336, 336))
+        resized_image = resized_image.resize((256, 256))
         original_image = np.array(resized_image)
 
         if getattr(model.config, 'mm_use_im_start_end', False):
@@ -126,15 +126,18 @@ def visualize(args):
             )
 
             # --- 1. Compute Base Relevance (CDPruner style) ---
-            # Relevance (negative cosine similarity as in CDPruner code)
+            # Relevance (cosine similarity as in CDPruner code)
             image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True) # (B, N, C)
             text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True) # (M, C)
+            if text_embeds.shape[0] > 1: # 跳过文本太长的
+                print(f"Skip text with text.embeds.length {text_embeds.shape[0]}")
+                continue
             relevance = torch.matmul(image_embeds, text_embeds.t()) # (B, N, M)
-            relevance = (-relevance).mean(dim=-1) # (B, N)
+            relevance_norm = relevance.mean(dim=-1) # (B, N)
             
             # Normalize relevance to [0, 1]
-            relevance_min, relevance_max = relevance.min(), relevance.max()
-            relevance_norm = (relevance - relevance_min + 1e-8) / (relevance_max - relevance_min + 1e-8)
+            relevance_min, relevance_max = relevance_norm.min(), relevance_norm.max()
+            relevance_norm = (relevance_norm - relevance_min + 1e-8) / (relevance_max - relevance_min + 1e-8)
             
             # --- 2. Compute Quantization Sensitivity ---
             quant_sensitivity = image_features.norm(dim=-1) # (N,)
@@ -147,9 +150,13 @@ def visualize(args):
             similarity = torch.matmul(image_normalized, image_normalized.transpose(1, 2)) # (B, N, N)
             
             # --- Selection 1: Standard CDPruner ---
-            kernel_base = relevance.unsqueeze(2) * similarity * relevance.unsqueeze(1)
-            select_base = fast_map_dpp(kernel_base, args.visual_token_num)[0]
-            mask_base = create_mask_image(select_base)
+            relevance_map = -relevance[0].reshape(16, 16).unsqueeze(0).unsqueeze(0).cpu()
+            relevance_map = F.interpolate(relevance_map, size=(256, 256), mode='nearest')
+            relevance_map = (relevance_map - relevance_map.min()) / (relevance_map.max() - relevance_map.min())
+            relevance_map = np.uint8(relevance_map.squeeze(0).squeeze(0).detach() * 255)
+            # kernel_base = relevance_norm.unsqueeze(2) * similarity * relevance_norm.unsqueeze(1)
+            # select_base = fast_map_dpp(kernel_base, args.visual_token_num)[0]
+            # mask_base = create_mask_image(select_base)
             
             # --- Selection 2: Quant-Aware CDPruner ---
             alpha = args.alpha
@@ -164,38 +171,41 @@ def visualize(args):
             mask_outliers = create_mask_image(select_outliers)
             
             # --- Plotting ---
-            fig, axes = plt.subplots(1, 4, figsize=(20, 5))
-            
-            # Create a wrapped title for long questions
-            import textwrap
-            wrapped_qs = textwrap.fill(qs, width=100)
-            fig.suptitle(f'QID: {question_id} | Keep: {args.visual_token_num}\n{wrapped_qs}', fontsize=12)
+            fig = plt.figure(figsize=(15, 10))
             
             # Original
-            axes[0].imshow(original_image)
-            axes[0].set_title("Original Image")
-            axes[0].axis('off')
+            ax1 = fig.add_subplot(2, 3, 2)
+            ax1.imshow(original_image)
+            ax1.axis('off')
+            ax1.text(0.5, -0.1, "Original Image", size=16, ha="center", transform=ax1.transAxes)
             
-            # Standard CDPruner
-            overlay_base = np.uint8(original_image * 0.5 + plt.cm.jet(mask_base)[:, :, :3] * 255 * 0.5)
-            axes[1].imshow(overlay_base)
-            axes[1].set_title("Standard CDPruner")
-            axes[1].axis('off')
+            # Standard Pruning
+            ax2 = fig.add_subplot(2, 3, 4)
+            jet_colormap = plt.get_cmap('jet')
+            relevance_map_colored = jet_colormap(relevance_map)
+            relevance_map_colored = np.uint8(relevance_map_colored * 255)
+            overlay_base = np.uint8(original_image * 0.5 + relevance_map_colored[:, :, :3] * 0.5)
+            # overlay_base = np.uint8(original_image * 0.5 + plt.cm.jet(mask_base)[:, :, :3] * 255 * 0.5)
+            ax2.imshow(overlay_base)
+            ax2.axis('off')
+            ax2.text(0.5, -0.1, "Standard Pruning", size=16, ha="center", transform=ax2.transAxes)
             
-            # Quant-Aware CDPruner
-            overlay_quant = np.uint8(original_image * 0.5 + plt.cm.jet(mask_quant)[:, :, :3] * 255 * 0.5)
-            axes[2].imshow(overlay_quant)
-            axes[2].set_title(f"Quant-Aware CDPruner (alpha={alpha})")
-            axes[2].axis('off')
-            
-            # Outliers Only
+            # Top Outliers
+            ax3 = fig.add_subplot(2, 3, 5)
             overlay_outliers = np.uint8(original_image * 0.5 + plt.cm.jet(mask_outliers)[:, :, :3] * 255 * 0.5)
-            axes[3].imshow(overlay_outliers)
-            axes[3].set_title("Top Outliers (Magnitude)")
-            axes[3].axis('off')
+            ax3.imshow(overlay_outliers)
+            ax3.axis('off')
+            ax3.text(0.5, -0.1, "Top Outliers", size=16, ha="center", transform=ax3.transAxes)
             
-            plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, f"{question_id}_comparison.png"))
+            # Quant-Aware Pruning
+            ax4 = fig.add_subplot(2, 3, 6)
+            overlay_quant = np.uint8(original_image * 0.5 + plt.cm.jet(mask_quant)[:, :, :3] * 255 * 0.5)
+            ax4.imshow(overlay_quant)
+            ax4.axis('off')
+            ax4.text(0.5, -0.1, "Quant-Aware Pruning", size=16, ha="center", transform=ax4.transAxes)
+            
+            plt.subplots_adjust(hspace=0.3)
+            plt.savefig(os.path.join(output_dir, f"{question_id}_comparison.png"), bbox_inches='tight')
             plt.close()
             
             print(f"Processed QID: {question_id}, text: {sample['conversations'][0]['value']}")
