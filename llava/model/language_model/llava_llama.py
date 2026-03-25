@@ -119,6 +119,7 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         alpha: float = 0.7,
         dynamic_alpha: bool = False,
         quant_method: "str" = "l2_norm",
+        pruning_method: str = 'cdpruner',
         **kwargs,
     ) -> Union[GenerateOutput, torch.LongTensor]:
         position_ids = kwargs.pop("position_ids", None)
@@ -147,7 +148,8 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
                 add_quant=add_quant,
                 dynamic_alpha=dynamic_alpha,
                 alpha=alpha,
-                quant_method=quant_method
+                quant_method=quant_method,
+                pruning_method=pruning_method
             )
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)

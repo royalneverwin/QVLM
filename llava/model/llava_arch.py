@@ -25,6 +25,7 @@ from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_PATCH
 
 from llava.mm_utils import get_anyres_image_grid_shape
 
+from typing import Union, List
 
 class LlavaMetaModel:
 
@@ -128,6 +129,80 @@ def unpad_image(tensor, original_size):
     return unpadded_tensor
 
 
+def compress_by_vit_attn_v3(
+    x: torch.Tensor,
+    attn_weights: torch.Tensor,
+    quant_sensitivity: torch.Tensor = None,
+    alpha: float = 0.7,
+    target_dim: Union[int, List[int]] = 128,
+    dominant_token_num: int = 128,
+    keep_order: bool = True,
+):
+    batch_size, seq_len, hidden_dim = x.shape
+
+    # support pruning all patches by same dim, or pruning only local patches. Do not support pruning both with different dims.
+    # logging.info(f'apply vit_attn pruning with {target_dim=}, {dominant_token_num=}, {keep_order=}')
+    global_target_dim = target_dim if isinstance(target_dim, int) else max(target_dim)
+    local_target_dim = target_dim if isinstance(target_dim, int) else min(target_dim)
+    assert global_target_dim == local_target_dim or global_target_dim == seq_len, (
+        f"global_target_dim:{global_target_dim} must be equal to local_target_dim:{local_target_dim} or original token num: {seq_len}"
+    )
+    assert local_target_dim >= dominant_token_num, (
+        f"dominant_token_num:{dominant_token_num} cannot be greater than the minimum target_dim:{target_dim}"
+    )
+    # Dominant Visual Tokens
+    attn_sum = attn_weights.mean(1)  # [B, S, S] -> [B, S]
+    
+    if quant_sensitivity is not None:
+        # Normalize both scores to [0, 1]
+        attn_min, attn_max = attn_sum.min(), attn_sum.max()
+        attn_sum = (attn_sum - attn_min) / (attn_max - attn_min)
+        
+        quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()
+        quant_sensitivity = (quant_sensitivity - quant_min + 1e-8) / (quant_max - quant_min + 1e-8)
+        
+        # Fuse scores
+        attn_sum = alpha * attn_sum + (1 - alpha) * quant_sensitivity
+
+    topk_indices = attn_sum.topk(dominant_token_num, dim=1).indices  # [B, dominant]
+
+    batch_indices = torch.arange(batch_size, device=x.device)[:, None]
+
+    # This mask will be returned. Initialize with dominant tokens.
+    prune_mask = torch.zeros(batch_size, seq_len, device=x.device, dtype=torch.bool)
+    prune_mask[batch_indices, topk_indices] = True
+
+    contextual_num = local_target_dim - dominant_token_num
+    if contextual_num > 0:
+        non_dominant_token_mask = ~prune_mask
+        non_dominant_token_num = seq_len - dominant_token_num
+
+        # Get original indices of non-dominant tokens
+        original_indices = torch.arange(seq_len, device=x.device).expand(batch_size, -1)
+        non_dominant_indices = original_indices[non_dominant_token_mask].reshape(batch_size, non_dominant_token_num)
+
+        # Select contextual tokens uniformly from non-dominant ones
+        step = max(1, non_dominant_token_num // contextual_num)
+        contextual_indices_in_nondominant = torch.arange(0, non_dominant_token_num, step, device=x.device)[
+            :contextual_num
+        ]
+
+        # Get original indices of these contextual tokens
+        contextual_original_indices = torch.gather(
+            non_dominant_indices, 1, contextual_indices_in_nondominant.expand(batch_size, -1)
+        )
+
+        # Add contextual tokens to the mask
+        prune_mask[batch_indices, contextual_original_indices] = True
+
+    # Handle list target_dim
+    if isinstance(target_dim, list):
+        for i in range(batch_size):
+            if target_dim[i] == global_target_dim:  # which is seq_len
+                prune_mask[i] = True  # Keep all tokens for this item
+    return prune_mask
+
+
 class LlavaMetaForCausalLM(ABC):
 
     @abstractmethod
@@ -137,72 +212,133 @@ class LlavaMetaForCausalLM(ABC):
     def get_vision_tower(self):
         return self.get_model().get_vision_tower()
 
-    def encode_images(self, images, texts=None, add_quant=False, alpha=0.7, dynamic_alpha=False, quant_method="l2_norm"):
+    def encode_images(self, images, texts=None, add_quant=False, alpha=0.7, dynamic_alpha=False, quant_method="l2_norm", pruning_method="cdpruner"):
         if self.visual_token_num is not None and texts is not None:
-            # [CDPruner] Generate index masks using conditional DPP
-            image_features, image_embeds, text_embeds = self.get_model().get_vision_tower()(images, texts=texts)
-            
-            B, N, C = image_features.shape
-            device = image_features.device
-            index_masks = torch.ones(B, N, dtype=torch.bool, device=device)
-            
-            image_features = self.get_model().mm_projector(image_features)
-            
-            # [CDPruner] Calculate cosine similarity
-            image_normalized = image_features / image_features.norm(dim=-1, keepdim=True) # (B, N, D)
-            image_normalized = image_normalized.float() # (B, N, D)
-            similarity = torch.matmul(image_normalized, image_normalized.transpose(1, 2)) # (B, N, N)
+            if pruning_method == 'visionzip':
+                # [VisionZip] Implementation
+                image_features, image_embeds, text_embeds, attentions = self.get_model().get_vision_tower()(images, texts=texts, output_attentions=True)
+                B, N, C = image_features.shape
+                device = image_features.device
+                
+                image_features = self.get_model().mm_projector(image_features)
+                # Use second to last layer attention weights
+                # attentions[-1] shape: (B, H, N+1, N+1)
+                # Remove CLS token interaction (index 0). We focus on patch-to-patch attention.
+                attn_weights = attentions[-1][:, :, 1:, 1:].mean(1) # (B, N, N)
+                
+                if add_quant:
+                    if quant_method == "quant_error_group":
+                        # Group-wise 量化模拟 (假设 Group size = 128)
+                        group_size = 128
+                        D = image_features.shape[-1]
+                        x_grouped = image_features.view(B, N, D // group_size, group_size)
+                        scale_grouped = x_grouped.abs().max(dim=-1, keepdim=True)[0] / 7.0
+                        x_q_grouped = torch.round(x_grouped / (scale_grouped + 1e-8)) * scale_grouped
+                        # 还原形状并算误差
+                        x_q = x_q_grouped.view(B, N, D)
+                        quant_sensitivity = torch.norm(image_features - x_q, dim=-1) # (B, N)
+                    else:
+                        raise ValueError(f"Unknown quant_method: {quant_method}")
+                else:
+                    quant_sensitivity = None
 
-            # [CDPruner] Calculate query relevance
-            image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True) # (B, N, C)
-            text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True) # (M, C)
-            relevance = torch.matmul(image_embeds, text_embeds.t()) # (B, N, M)
-            relevance = (-relevance).mean(dim=-1) # (B, N)
-            relevance = (relevance - relevance.min() + 1e-6) / (relevance.max() - relevance.min()) # (B, N)
-            # [Quantization-Aware] Calculate quantization sensitivity (L2 norm)
-            if add_quant:
-                print(f"quant_method = {quant_method}")
-                # Integrate quantization sensitivity
-                if quant_method == "l2_norm": # Outliers
-                    quant_sensitivity = image_features.norm(dim=-1) # (B, N)
-                elif quant_method == "l1_norm": # 均值幅度 (Mean Magnitude)，AWQ
-                    quant_sensitivity = image_features.abs().mean(dim=-1) # (B, N)
-                elif quant_method == "l_inf": # 极端异常值统计 (Outlier Count)，llm.int8()
-                    quant_sensitivity = image_features.abs().max(dim=-1)[0] # (B, N)
-                elif quant_method == "variance": # 特征方差/信息熵 (Variance / Entropy),Q-VLM
-                    quant_sensitivity = image_features.var(dim=-1) # (B, N)
-                elif quant_method == "l2": # 伪 Hessian 迹 (Pseudo Hessian Trace), GPTQ
-                    quant_sensitivity = (image_features ** 2).sum(dim=-1)
-                elif quant_method == "quant_error": 
-                    # 当前：Token-wise AbsMax
-                    scale = image_features.abs().max(dim=-1, keepdim=True)[0] / 7.0
-                    x_q = torch.round(image_features / (scale + 1e-8)) * scale
-                    quant_sensitivity = torch.norm(image_features - x_q, dim=-1) # (B, N)
-                    
-                elif quant_method == "quant_error_clip": 
-                    # 截断量化模拟 (假设剔除 0.1% 的极端值，保护大部分正常值)
-                    # 注意: quantile 在某些旧版本 PyTorch 或某些特定维度上可能较慢
-                    k = int(image_features.shape[-1] * 0.99)
-                    clip_val = torch.topk(image_features.abs(), k, dim=-1).values[..., -1:] 
-                    scale = clip_val / 7.0
-                    x_q = torch.round(image_features.clamp(min=-clip_val, max=clip_val) / (scale + 1e-8)) * scale
-                    quant_sensitivity = torch.norm(image_features - x_q, dim=-1) # (B, N)
+                index_masks = compress_by_vit_attn_v3(
+                    image_features,
+                    attn_weights,
+                    quant_sensitivity=quant_sensitivity,
+                    alpha=alpha,
+                    target_dim=self.visual_token_num,
+                    dominant_token_num=self.visual_token_num
+                )
+                return image_features, index_masks
 
-                elif quant_method == "quant_error_group":
-                    # Group-wise 量化模拟 (假设 Group size = 128)
-                    group_size = 128
-                    D = image_features.shape[-1]
-                    x_grouped = image_features.view(B, N, D // group_size, group_size)
-                    scale_grouped = x_grouped.abs().max(dim=-1, keepdim=True)[0] / 7.0
-                    x_q_grouped = torch.round(x_grouped / (scale_grouped + 1e-8)) * scale_grouped
-                    # 还原形状并算误差
-                    x_q = x_q_grouped.view(B, N, D)
-                    quant_sensitivity = torch.norm(image_features - x_q, dim=-1) # (B, N)
+            elif pruning_method == 'cdpruner':
+                # [CDPruner] Generate index masks using conditional DPP
+                image_features, image_embeds, text_embeds = self.get_model().get_vision_tower()(images, texts=texts)
+                
+                B, N, C = image_features.shape
+                device = image_features.device
+                index_masks = torch.ones(B, N, dtype=torch.bool, device=device)
+                
+                image_features = self.get_model().mm_projector(image_features)
+                
+                # [CDPruner] Calculate cosine similarity
+                image_normalized = image_features / image_features.norm(dim=-1, keepdim=True) # (B, N, D)
+                image_normalized = image_normalized.float() # (B, N, D)
+                similarity = torch.matmul(image_normalized, image_normalized.transpose(1, 2)) # (B, N, N)
 
-                elif quant_method == "dynamic_range": # Dynamic Range / Min-Max Spread
-                    quant_sensitivity = image_features.max(dim=-1)[0] - image_features.min(dim=-1)[0] # (B, N)
-                elif quant_method == "complex":
-                        # 1. Calculate Group-wise Quantization Error (Local detail loss)
+                # [CDPruner] Calculate query relevance
+                image_embeds = image_embeds / image_embeds.norm(p=2, dim=-1, keepdim=True) # (B, N, C)
+                text_embeds = text_embeds / text_embeds.norm(p=2, dim=-1, keepdim=True) # (M, C)
+                relevance = torch.matmul(image_embeds, text_embeds.t()) # (B, N, M)
+                relevance = (-relevance).mean(dim=-1) # (B, N)
+                relevance = (relevance - relevance.min() + 1e-6) / (relevance.max() - relevance.min()) # (B, N)
+                # [Quantization-Aware] Calculate quantization sensitivity (L2 norm)
+                if add_quant:
+                    print(f"quant_method = {quant_method}")
+                    # Integrate quantization sensitivity
+                    if quant_method == "l2_norm": # Outliers
+                        quant_sensitivity = image_features.norm(dim=-1) # (B, N)
+                    elif quant_method == "l1_norm": # 均值幅度 (Mean Magnitude)，AWQ
+                        quant_sensitivity = image_features.abs().mean(dim=-1) # (B, N)
+                    elif quant_method == "l_inf": # 极端异常值统计 (Outlier Count)，llm.int8()
+                        quant_sensitivity = image_features.abs().max(dim=-1)[0] # (B, N)
+                    elif quant_method == "variance": # 特征方差/信息熵 (Variance / Entropy),Q-VLM
+                        quant_sensitivity = image_features.var(dim=-1) # (B, N)
+                    elif quant_method == "l2": # 伪 Hessian 迹 (Pseudo Hessian Trace), GPTQ
+                        quant_sensitivity = (image_features ** 2).sum(dim=-1)
+                    elif quant_method == "quant_error": 
+                        # 当前：Token-wise AbsMax
+                        scale = image_features.abs().max(dim=-1, keepdim=True)[0] / 7.0
+                        x_q = torch.round(image_features / (scale + 1e-8)) * scale
+                        quant_sensitivity = torch.norm(image_features - x_q, dim=-1) # (B, N)
+                        
+                    elif quant_method == "quant_error_clip": 
+                        # 截断量化模拟 (假设剔除 0.1% 的极端值，保护大部分正常值)
+                        # 注意: quantile 在某些旧版本 PyTorch 或某些特定维度上可能较慢
+                        k = int(image_features.shape[-1] * 0.99)
+                        clip_val = torch.topk(image_features.abs(), k, dim=-1).values[..., -1:] 
+                        scale = clip_val / 7.0
+                        x_q = torch.round(image_features.clamp(min=-clip_val, max=clip_val) / (scale + 1e-8)) * scale
+                        quant_sensitivity = torch.norm(image_features - x_q, dim=-1) # (B, N)
+
+                    elif quant_method == "quant_error_group":
+                        # Group-wise 量化模拟 (假设 Group size = 128)
+                        group_size = 128
+                        D = image_features.shape[-1]
+                        x_grouped = image_features.view(B, N, D // group_size, group_size)
+                        scale_grouped = x_grouped.abs().max(dim=-1, keepdim=True)[0] / 7.0
+                        x_q_grouped = torch.round(x_grouped / (scale_grouped + 1e-8)) * scale_grouped
+                        # 还原形状并算误差
+                        x_q = x_q_grouped.view(B, N, D)
+                        quant_sensitivity = torch.norm(image_features - x_q, dim=-1) # (B, N)
+
+                    elif quant_method == "dynamic_range": # Dynamic Range / Min-Max Spread
+                        quant_sensitivity = image_features.max(dim=-1)[0] - image_features.min(dim=-1)[0] # (B, N)
+                    elif quant_method == "complex":
+                            # 1. Calculate Group-wise Quantization Error (Local detail loss)
+                            group_size = 128
+                            D = image_features.shape[-1]
+                            x_grouped = image_features.view(B, N, D // group_size, group_size)
+                            scale_grouped = x_grouped.abs().max(dim=-1, keepdim=True)[0] / 7.0
+                            x_q_grouped = torch.round(x_grouped / (scale_grouped + 1e-8)) * scale_grouped
+                            x_q = x_q_grouped.view(B, N, D)
+                            err_group = torch.norm(image_features - x_q, dim=-1) # (B, N)
+                            
+                            # 2. Calculate Dynamic Range (Global outlier intensity)
+                            dyn_range = image_features.max(dim=-1)[0] - image_features.min(dim=-1)[0] # (B, N)
+                            
+                            # Normalize both to [0, 1] per batch before fusing
+                            err_min, err_max = err_group.min(dim=-1, keepdim=True)[0], err_group.max(dim=-1, keepdim=True)[0]
+                            err_norm = (err_group - err_min + 1e-8) / (err_max - err_min + 1e-8)
+                            
+                            dyn_min, dyn_max = dyn_range.min(dim=-1, keepdim=True)[0], dyn_range.max(dim=-1, keepdim=True)[0]
+                            dyn_norm = (dyn_range - dyn_min + 1e-8) / (dyn_max - dyn_min + 1e-8)
+                            
+                            # Fuse them (equal weight 0.5 works best as a starting point for two orthogonal metrics)
+                            quant_sensitivity = 0.5 * err_norm + 0.5 * dyn_norm # (B, N)
+
+                    elif quant_method == "complex_l1":
                         group_size = 128
                         D = image_features.shape[-1]
                         x_grouped = image_features.view(B, N, D // group_size, group_size)
@@ -211,108 +347,90 @@ class LlavaMetaForCausalLM(ABC):
                         x_q = x_q_grouped.view(B, N, D)
                         err_group = torch.norm(image_features - x_q, dim=-1) # (B, N)
                         
-                        # 2. Calculate Dynamic Range (Global outlier intensity)
                         dyn_range = image_features.max(dim=-1)[0] - image_features.min(dim=-1)[0] # (B, N)
                         
-                        # Normalize both to [0, 1] per batch before fusing
-                        err_min, err_max = err_group.min(dim=-1, keepdim=True)[0], err_group.max(dim=-1, keepdim=True)[0]
-                        err_norm = (err_group - err_min + 1e-8) / (err_max - err_min + 1e-8)
+                        # L1 Normalization (Sum Norm)
+                        err_norm = err_group / (err_group.sum(dim=-1, keepdim=True) + 1e-8)
+                        dyn_norm = dyn_range / (dyn_range.sum(dim=-1, keepdim=True) + 1e-8)
                         
-                        dyn_min, dyn_max = dyn_range.min(dim=-1, keepdim=True)[0], dyn_range.max(dim=-1, keepdim=True)[0]
-                        dyn_norm = (dyn_range - dyn_min + 1e-8) / (dyn_max - dyn_min + 1e-8)
-                        
-                        # Fuse them (equal weight 0.5 works best as a starting point for two orthogonal metrics)
                         quant_sensitivity = 0.5 * err_norm + 0.5 * dyn_norm # (B, N)
 
-                elif quant_method == "complex_l1":
-                    group_size = 128
-                    D = image_features.shape[-1]
-                    x_grouped = image_features.view(B, N, D // group_size, group_size)
-                    scale_grouped = x_grouped.abs().max(dim=-1, keepdim=True)[0] / 7.0
-                    x_q_grouped = torch.round(x_grouped / (scale_grouped + 1e-8)) * scale_grouped
-                    x_q = x_q_grouped.view(B, N, D)
-                    err_group = torch.norm(image_features - x_q, dim=-1) # (B, N)
-                    
-                    dyn_range = image_features.max(dim=-1)[0] - image_features.min(dim=-1)[0] # (B, N)
-                    
-                    # L1 Normalization (Sum Norm)
-                    err_norm = err_group / (err_group.sum(dim=-1, keepdim=True) + 1e-8)
-                    dyn_norm = dyn_range / (dyn_range.sum(dim=-1, keepdim=True) + 1e-8)
-                    
-                    quant_sensitivity = 0.5 * err_norm + 0.5 * dyn_norm # (B, N)
-
-                elif quant_method == "complex_mul":
-                    group_size = 128
-                    D = image_features.shape[-1]
-                    x_grouped = image_features.view(B, N, D // group_size, group_size)
-                    scale_grouped = x_grouped.abs().max(dim=-1, keepdim=True)[0] / 7.0
-                    x_q_grouped = torch.round(x_grouped / (scale_grouped + 1e-8)) * scale_grouped
-                    x_q = x_q_grouped.view(B, N, D)
-                    err_group = torch.norm(image_features - x_q, dim=-1) # (B, N)
-                    
-                    dyn_range = image_features.max(dim=-1)[0] - image_features.min(dim=-1)[0] # (B, N)
-                    
-                    # Multiplication fusion (Geometric/Logical AND equivalent)
-                    quant_sensitivity = err_group * dyn_range # (B, N)
-                else:
-                    raise ValueError(f"Unknown quant_method: {quant_method}")
-            
-                if dynamic_alpha:
-                    # 1. Calculate Coefficient of Variation (CV) of quant_sensitivity
-                    qs_mean = quant_sensitivity.mean(dim=-1, keepdim=True)
-                    qs_std = quant_sensitivity.std(dim=-1, keepdim=True)
-                    cv = qs_std / (qs_mean + 1e-8) # (B, 1)
-                    
-                    # 2. Optimized for keep_tokens=32 (Extreme Pruning)
-                    # Testing shows alpha=0.5 is optimal. Narrow the range to [0.45, 0.55].
-                    # High CV -> severe outliers -> slightly more quant weight -> alpha towards 0.45
-                    # Low CV -> smooth distribution -> more semantic weight -> alpha towards 0.55
-                    
-                    cv_norm = torch.clamp((cv - 0.2) / 1.0, min=0.0, max=1.0) # Adjusted CV sensitivity
-                    
-                    base_alpha_max = 0.55
-                    base_alpha_min = 0.45
-                    
-                    alpha = base_alpha_max - (base_alpha_max - base_alpha_min) * cv_norm # (B, 1)
-                    
-                    print(f"CV: {cv.mean().item():.4f}, Optimized Dynamic Alpha: {alpha.mean().item():.4f}")
-
-                else:
-                    print("Super Parameter alpha:", alpha)
+                    elif quant_method == "complex_mul":
+                        group_size = 128
+                        D = image_features.shape[-1]
+                        x_grouped = image_features.view(B, N, D // group_size, group_size)
+                        scale_grouped = x_grouped.abs().max(dim=-1, keepdim=True)[0] / 7.0
+                        x_q_grouped = torch.round(x_grouped / (scale_grouped + 1e-8)) * scale_grouped
+                        x_q = x_q_grouped.view(B, N, D)
+                        err_group = torch.norm(image_features - x_q, dim=-1) # (B, N)
+                        
+                        dyn_range = image_features.max(dim=-1)[0] - image_features.min(dim=-1)[0] # (B, N)
+                        
+                        # Multiplication fusion (Geometric/Logical AND equivalent)
+                        quant_sensitivity = err_group * dyn_range # (B, N)
+                    else:
+                        raise ValueError(f"Unknown quant_method: {quant_method}")
                 
-                if quant_method not in ["complex", "complex_l1"]:
-                    quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()
-                    quant_sensitivity = (quant_sensitivity - quant_min + 1e-8) / (quant_max - quant_min + 1e-8)
+                    if dynamic_alpha:
+                        # 1. Calculate Coefficient of Variation (CV) of quant_sensitivity
+                        qs_mean = quant_sensitivity.mean(dim=-1, keepdim=True)
+                        qs_std = quant_sensitivity.std(dim=-1, keepdim=True)
+                        cv = qs_std / (qs_mean + 1e-8) # (B, 1)
+                        
+                        # 2. Optimized for keep_tokens=32 (Extreme Pruning)
+                        # Testing shows alpha=0.5 is optimal. Narrow the range to [0.45, 0.55].
+                        # High CV -> severe outliers -> slightly more quant weight -> alpha towards 0.45
+                        # Low CV -> smooth distribution -> more semantic weight -> alpha towards 0.55
+                        
+                        cv_norm = torch.clamp((cv - 0.2) / 1.0, min=0.0, max=1.0) # Adjusted CV sensitivity
+                        
+                        base_alpha_max = 0.55
+                        base_alpha_min = 0.45
+                        
+                        alpha = base_alpha_max - (base_alpha_max - base_alpha_min) * cv_norm # (B, 1)
+                        
+                        print(f"CV: {cv.mean().item():.4f}, Optimized Dynamic Alpha: {alpha.mean().item():.4f}")
+
+                    else:
+                        print("Super Parameter alpha:", alpha)
+                    
+                    if quant_method not in ["complex", "complex_l1"]:
+                        quant_min, quant_max = quant_sensitivity.min(), quant_sensitivity.max()
+                        quant_sensitivity = (quant_sensitivity - quant_min + 1e-8) / (quant_max - quant_min + 1e-8)
+                    
+                    # Fuse scores (alpha=0.7 for semantic preference)
+                    relevance = alpha * relevance + (1 - alpha) * quant_sensitivity
+
+                # [CDPruner] Construct kernel matrix
+                # You can use an additional hyperparameter theta to control the influence of the relevance score.
+                # theta = 0.5
+                # alpha = theta / (2 * (1 - theta))
+                # relevance = torch.exp(alpha * relevance) # (B, N)
+                kernel = relevance.unsqueeze(2) * similarity * relevance.unsqueeze(1) # (B, N, N)
+
+                # [CDPruner] Fast MAP inference of conditional DPP
+                cis = torch.zeros((self.visual_token_num, B, N), device=device) # (T, B, N)
+                di2s = torch.diagonal(kernel, dim1=1, dim2=2).clone() # (B, N)
+                select_idx = torch.empty((self.visual_token_num, B), dtype=torch.long, device=device) # (T, B)
+                for i in range(self.visual_token_num):
+                    j = torch.argmax(di2s, dim=-1)
+                    select_idx[i] = j
+
+                    eis = (kernel[torch.arange(B), j] - torch.einsum('tb,tbn->bn', cis[:i, torch.arange(B), j], cis[:i])) \
+                        / torch.sqrt(di2s[torch.arange(B), j]).unsqueeze(-1)
+                    cis[i, :, :] = eis
+                    di2s -= torch.square(eis)
+                    di2s[torch.arange(B), j] = -float('inf')
                 
-                # Fuse scores (alpha=0.7 for semantic preference)
-                relevance = alpha * relevance + (1 - alpha) * quant_sensitivity
-
-            # [CDPruner] Construct kernel matrix
-            # You can use an additional hyperparameter theta to control the influence of the relevance score.
-            # theta = 0.5
-            # alpha = theta / (2 * (1 - theta))
-            # relevance = torch.exp(alpha * relevance) # (B, N)
-            kernel = relevance.unsqueeze(2) * similarity * relevance.unsqueeze(1) # (B, N, N)
-
-            # [CDPruner] Fast MAP inference of conditional DPP
-            cis = torch.zeros((self.visual_token_num, B, N), device=device) # (T, B, N)
-            di2s = torch.diagonal(kernel, dim1=1, dim2=2).clone() # (B, N)
-            select_idx = torch.empty((self.visual_token_num, B), dtype=torch.long, device=device) # (T, B)
-            for i in range(self.visual_token_num):
-                j = torch.argmax(di2s, dim=-1)
-                select_idx[i] = j
-
-                eis = (kernel[torch.arange(B), j] - torch.einsum('tb,tbn->bn', cis[:i, torch.arange(B), j], cis[:i])) \
-                    / torch.sqrt(di2s[torch.arange(B), j]).unsqueeze(-1)
-                cis[i, :, :] = eis
-                di2s -= torch.square(eis)
-                di2s[torch.arange(B), j] = -float('inf')
+                select_idx = torch.sort(select_idx.t()).values # (B, T)
+                index_masks = torch.zeros(B, N, dtype=torch.bool, device=device)
+                index_masks.scatter_(1, select_idx, True)
+                
+                return image_features, index_masks
             
-            select_idx = torch.sort(select_idx.t()).values # (B, T)
-            index_masks = torch.zeros(B, N, dtype=torch.bool, device=device)
-            index_masks.scatter_(1, select_idx, True)
-            
-            return image_features, index_masks
+            else:
+                raise ValueError(f"Unknown pruning_method: {pruning_method}")
+
         else:
             image_features = self.get_model().get_vision_tower()(images)
             image_features = self.get_model().mm_projector(image_features)
@@ -321,7 +439,7 @@ class LlavaMetaForCausalLM(ABC):
     def prepare_inputs_labels_for_multimodal(
         self, input_ids, position_ids, attention_mask, past_key_values, labels,
         images, image_sizes=None, texts=None, add_quant=False, alpha=0.7, 
-        dynamic_alpha=False, quant_method="l2_norm"
+        dynamic_alpha=False, quant_method="l2_norm", pruning_method='cdpruner', 
     ):
         vision_tower = self.get_vision_tower()
         if vision_tower is None or images is None or input_ids.shape[1] == 1:
@@ -333,7 +451,7 @@ class LlavaMetaForCausalLM(ABC):
                 if type(images) is list:
                     images = [x.unsqueeze(0) if x.ndim == 3 else x for x in images]
                 concat_images = torch.cat([image for image in images], dim=0)
-                image_features, index_masks = self.encode_images(concat_images, texts=texts, add_quant=add_quant, alpha=alpha, dynamic_alpha=dynamic_alpha, quant_method=quant_method)
+                image_features, index_masks = self.encode_images(concat_images, texts=texts, add_quant=add_quant, alpha=alpha, dynamic_alpha=dynamic_alpha, quant_method=quant_method, pruning_method=pruning_method)
                 split_sizes = [image.shape[0] for image in images]
                 image_features = torch.split(image_features, split_sizes, dim=0)
                 index_masks = torch.split(index_masks, split_sizes, dim=0)
@@ -404,7 +522,7 @@ class LlavaMetaForCausalLM(ABC):
                 else:
                     raise ValueError(f"Unexpected mm_patch_merge_type: {self.config.mm_patch_merge_type}")
             else:
-                image_features, index_masks = self.encode_images(images, texts=texts, add_quant=add_quant, alpha=alpha, dynamic_alpha=dynamic_alpha, quant_method=quant_method)
+                image_features, index_masks = self.encode_images(images, texts=texts, add_quant=add_quant, alpha=alpha, dynamic_alpha=dynamic_alpha, quant_method=quant_method, pruning_method=pruning_method)
                 image_features = image_features[index_masks].unsqueeze(0)
         else:
             if type(images) is list or images.ndim == 5:

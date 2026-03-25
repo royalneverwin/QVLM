@@ -205,6 +205,7 @@ def eval_model(args):
                 alpha=args.alpha if args.visual_token_num else 0.7,
                 dynamic_alpha=args.dynamic_alpha if args.visual_token_num else False,
                 quant_method=args.quant_method if args.visual_token_num else "l2_norm",
+                pruning_method=args.pruning_method if args.visual_token_num else 'cdpruner',
                 use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
 
@@ -247,6 +248,7 @@ if __name__ == "__main__":
     parser.add_argument("--test_len", type=int, default=None)
     parser.add_argument("--dynamic_alpha", action="store_true", default=False)
     parser.add_argument("--quant_method", type=str, default="l2_norm")
+    parser.add_argument("--pruning_method", type=str, default="cdpruner", choices=["cdpruner", "visionzip"])
     args = parser.parse_args()
 
     eval_model(args)

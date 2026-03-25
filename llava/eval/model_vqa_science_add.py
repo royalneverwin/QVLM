@@ -88,12 +88,10 @@ def run_calibrate(args, tokenizer, model, image_processor):
                 input_ids,
                 images=images,
                 # image_sizes=image_sizes,
-                do_sample=True,
-                temperature=0.2,
+                do_sample=False,
+                # temperature=0.2,
                 max_new_tokens=1024,
                 use_cache=True,
-                texts=question['value'],
-                add_quant=args.add_quant,
                 stopping_criteria=[stopping_criteria])
 
         print(f"visual_token_num = {visual_token_num}")
@@ -156,9 +154,6 @@ def eval_model(args):
         raise FileNotFoundError(f"Answers file not found: {answers_file}")
 
     
-    if args.test_len: # for each CUDA_DEVICES
-        questions = questions[:args.test_len]
-    
     cnt = 0
     if len(questions) == len(existing_question_ids):
         print("All questions have been answered already. Exiting evaluation.")
@@ -208,17 +203,26 @@ def eval_model(args):
         keywords = [stop_str]
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
 
+        texts = cur_prompt.replace("<image>\n", "")
+        # question = question.split('\nA. ')[0]
+        # question = question.split('\n')[-1]
+        texts = texts.replace("\nAnswer with the option's letter from the given choices directly.", "")
+
         start_time = time.time()
         with torch.inference_mode():
             output_ids, visual_token_num = model.generate(
                 input_ids,
                 images=images,
                 # image_sizes=image_sizes,
-                do_sample=True,
-                temperature=0.2,
+                do_sample=False,
+                # temperature=0.2,
                 max_new_tokens=1024,
-                texts=question['value'],
-                add_quant=args.add_quant,
+                texts=texts if args.visual_token_num else None,
+                add_quant=args.add_quant if args.visual_token_num else False,
+                alpha=args.alpha if args.visual_token_num else 0.7,
+                dynamic_alpha=args.dynamic_alpha if args.visual_token_num else False,
+                quant_method=args.quant_method if args.visual_token_num else "l2_norm",
+                pruning_method=args.pruning_method if args.visual_token_num else 'cdpruner',
                 use_cache=True,)
                 # stopping_criteria=[stopping_criteria])
 
@@ -262,7 +266,10 @@ if __name__ == "__main__":
     parser.add_argument("--load-4bit", action="store_true")
     parser.add_argument("--visual_token_num", type=int, default=None)
     parser.add_argument("--add_quant", action="store_true")
-    parser.add_argument("--test_len", type=int, default=None)
+    parser.add_argument("--alpha", type=float, default=0.7)
+    parser.add_argument("--dynamic_alpha", action="store_true", default=False)
+    parser.add_argument("--quant_method", type=str, default="l2_norm")
+    parser.add_argument("--pruning_method", type=str, default="cdpruner", choices=["cdpruner", "visionzip"])
     args = parser.parse_args()
 
     eval_model(args)
