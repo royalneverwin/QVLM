@@ -3,7 +3,7 @@
 Prepare a local, editable Qwen2-VL checkpoint for QVLM development.
 
 Workflow:
-1. Download the HuggingFace checkpoint locally.
+1. Download the HuggingFace checkpoint locally (skip if already present).
 2. Vendor Qwen2-VL source files into the QVLM repo.
 3. Rewrite imports so the vendored files work as local dynamic modules.
 4. Symlink those vendored files into the local model folder.
@@ -55,14 +55,21 @@ def require_packages() -> None:
         )
 
 
+def is_model_downloaded(local_model_dir: Path) -> bool:
+    """检查模型是否已经下载完成（通过 config.json 是否存在来判断）。"""
+    return (local_model_dir / "config.json").exists()
+
+
 def download_model_snapshot(model_id: str, local_model_dir: Path) -> None:
     from huggingface_hub import snapshot_download
+
+    # 使用 hf-mirror 镜像加速下载
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
     local_model_dir.parent.mkdir(parents=True, exist_ok=True)
     snapshot_download(
         repo_id=model_id,
         local_dir=str(local_model_dir),
-        local_dir_use_symlinks=False,
         resume_download=True,
     )
 
@@ -225,8 +232,11 @@ def main() -> None:
     local_model_dir = Path(args.local_model_dir).expanduser().resolve()
     vendored_code_dir = Path(args.vendored_code_dir).expanduser().resolve()
 
-    print(f"[1/4] Downloading model snapshot to {local_model_dir}")
-    download_model_snapshot(args.model_id, local_model_dir)
+    if is_model_downloaded(local_model_dir):
+        print(f"[1/4] Model already downloaded at {local_model_dir}, skipping download.")
+    else:
+        print(f"[1/4] Downloading model snapshot to {local_model_dir}")
+        download_model_snapshot(args.model_id, local_model_dir)
 
     print(f"[2/4] Seeding vendored Qwen2-VL code to {vendored_code_dir}")
     seed_vendored_code(vendored_code_dir, refresh=args.refresh_vendored_code)
