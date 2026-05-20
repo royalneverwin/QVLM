@@ -25,7 +25,7 @@ QWEN2_VL_CODE_FILES = [
     "configuration_qwen2_vl.py",
     "modeling_qwen2_vl.py",
     "image_processing_qwen2_vl.py",
-    "image_processing_qwen2_vl_fast.py",
+    "image_processing_pil_qwen2_vl.py",
     "processing_qwen2_vl.py",
     "video_processing_qwen2_vl.py",
 ]
@@ -184,7 +184,7 @@ def patch_preprocessor_config_json(local_model_dir: Path) -> None:
         {
             "AutoImageProcessor": [
                 "image_processing_qwen2_vl.Qwen2VLImageProcessor",
-                "image_processing_qwen2_vl_fast.Qwen2VLImageProcessorFast",
+                "image_processing_pil_qwen2_vl.Qwen2VLImageProcessorPIL",
             ],
             "AutoProcessor": "processing_qwen2_vl.Qwen2VLProcessor",
             "AutoVideoProcessor": "video_processing_qwen2_vl.Qwen2VLVideoProcessor",
