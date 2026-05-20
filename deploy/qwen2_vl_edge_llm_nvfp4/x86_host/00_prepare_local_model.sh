@@ -17,7 +17,8 @@ need_cmd python3
 python3 "${SCRIPT_DIR}/prepare_local_model.py" \
   --model-id "${MODEL_ID}" \
   --local-model-dir "${LOCAL_MODEL_DIR}" \
-  --vendored-code-dir "${VENDORED_QWEN2_VL_CODE_DIR}"
+  --vendored-code-dir "${VENDORED_QWEN2_VL_CODE_DIR}" \
+  --refresh-vendored-code
 
 echo
 echo "Local model preparation finished:"
