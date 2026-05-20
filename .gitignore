@@ -26,4 +26,3 @@ checkpoints
 ckpts*
 
 tensorrt-edgellm-workspace/
-deploy/qwen2_vl_edge_llm_nvfp4/
