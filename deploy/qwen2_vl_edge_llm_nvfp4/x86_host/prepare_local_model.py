@@ -35,13 +35,23 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--local-model-dir", required=True)
-    parser.add_argument("--vendored-code-dir", required=True)
+    parser.add_argument("--vendored-code-dir", default=None,
+                        help="Path to vendored code dir. Required if --use-vendored-code is set.")
+    parser.add_argument(
+        "--use-vendored-code",
+        action="store_true",
+        help="Enable vendored code: seed, link, and patch config for local dynamic loading. "
+             "Only needed when using custom model code (e.g. VisionZip/QAPruner).",
+    )
     parser.add_argument(
         "--refresh-vendored-code",
         action="store_true",
         help="Overwrite existing vendored Qwen2-VL code with the local transformers source.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.use_vendored_code and not args.vendored_code_dir:
+        parser.error("--vendored-code-dir is required when --use-vendored-code is set.")
+    return args
 
 
 def require_packages() -> None:
@@ -230,31 +240,35 @@ def main() -> None:
     require_packages()
 
     local_model_dir = Path(args.local_model_dir).expanduser().resolve()
-    vendored_code_dir = Path(args.vendored_code_dir).expanduser().resolve()
 
     if is_model_downloaded(local_model_dir):
-        print(f"[1/4] Model already downloaded at {local_model_dir}, skipping download.")
+        print(f"[1/2] Model already downloaded at {local_model_dir}, skipping download.")
     else:
-        print(f"[1/4] Downloading model snapshot to {local_model_dir}")
+        print(f"[1/2] Downloading model snapshot to {local_model_dir}")
         download_model_snapshot(args.model_id, local_model_dir)
 
-    print(f"[2/4] Seeding vendored Qwen2-VL code to {vendored_code_dir}")
-    seed_vendored_code(vendored_code_dir, refresh=args.refresh_vendored_code)
+    if args.use_vendored_code:
+        vendored_code_dir = Path(args.vendored_code_dir).expanduser().resolve()
 
-    print("[3/4] Linking vendored code into local model directory")
-    link_vendored_code(vendored_code_dir, local_model_dir)
+        print(f"[2/2] Setting up vendored code at {vendored_code_dir}")
+        seed_vendored_code(vendored_code_dir, refresh=args.refresh_vendored_code)
+        link_vendored_code(vendored_code_dir, local_model_dir)
+        patch_config_json(local_model_dir)
+        patch_preprocessor_config_json(local_model_dir)
+        patch_tokenizer_config_json(local_model_dir)
+        write_prepare_metadata(local_model_dir, args.model_id, vendored_code_dir)
 
-    print("[4/4] Patching local model config files for local dynamic loading")
-    patch_config_json(local_model_dir)
-    patch_preprocessor_config_json(local_model_dir)
-    patch_tokenizer_config_json(local_model_dir)
-    write_prepare_metadata(local_model_dir, args.model_id, vendored_code_dir)
-
-    print()
-    print("Prepared local Qwen2-VL model:")
-    print(f"  model_id:          {args.model_id}")
-    print(f"  local_model_dir:   {local_model_dir}")
-    print(f"  vendored_code_dir: {vendored_code_dir}")
+        print()
+        print("Prepared local Qwen2-VL model (with vendored code):")
+        print(f"  model_id:          {args.model_id}")
+        print(f"  local_model_dir:   {local_model_dir}")
+        print(f"  vendored_code_dir: {vendored_code_dir}")
+    else:
+        print("[2/2] Using transformers built-in Qwen2-VL (no vendored code).")
+        print()
+        print("Prepared local Qwen2-VL model (baseline):")
+        print(f"  model_id:          {args.model_id}")
+        print(f"  local_model_dir:   {local_model_dir}")
 
 
 if __name__ == "__main__":
