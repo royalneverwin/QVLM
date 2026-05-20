@@ -18,7 +18,7 @@ export MODEL_NAME="Qwen2-VL-7B-Instruct"
 # that runs build/inference commands. On the Thor device this should point
 # to the built Edge-LLM C++ repo because `llm_build`, `visual_build`, and
 # `llm_inference` are resolved from this directory.
-export EDGE_LLM_REPO="$HOME/TensorRT-Edge-LLM"
+export EDGE_LLM_REPO="/data/wangxinhao/TensorRT-Edge-LLM"
 
 # SSH username used by the host-side transfer script when copying ONNX files
 # from the x86 machine to the Thor device.
