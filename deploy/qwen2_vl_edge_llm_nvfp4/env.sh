@@ -66,6 +66,18 @@ export INPUT_FILE="$DEVICE_WORKSPACE_DIR/input_vlm.json"
 export OUTPUT_FILE="$DEVICE_WORKSPACE_DIR/output_vlm.json"
 
 
+############ X86 Local Build/Inference Related ##################
+# x86 侧本地构建 engine 和推理时使用的路径（不经过 Thor 设备）
+
+# x86 侧 TensorRT engine 输出目录
+export X86_ENGINE_LLM_DIR="$EXPORT_MODEL_DIR/engines/llm"
+export X86_ENGINE_VISUAL_DIR="$EXPORT_MODEL_DIR/engines/visual"
+
+# x86 侧推理输入/输出文件
+export X86_INPUT_FILE="$WORKSPACE_DIR/input_vlm.json"
+export X86_OUTPUT_FILE="$WORKSPACE_DIR/output_vlm.json"
+
+
 
 ############ X86 Export Related ##################
 # Host-side workspace root used to store downloaded/quantized models, ONNX
