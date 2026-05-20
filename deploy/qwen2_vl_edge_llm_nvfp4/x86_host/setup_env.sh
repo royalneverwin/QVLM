@@ -87,19 +87,16 @@ echo "[4/5] 安装兼容版本的依赖包"
 
 # transformers >= 5.2.0：支持 qwen3_5、qwen3_vl 模块
 # timm >= 1.0.0：修复 gemma3n 的 ImageNetInfo 导入
-# numpy + scikit-learn：确保二进制兼容
 uv pip install \
     "transformers>=5.2.0" \
-    "timm>=1.0.0" \
-    "numpy>=1.26" \
-    "scikit-learn"
+    "timm>=1.0.0"
 
-# deepspeed 与 pydantic v2 冲突，量化/导出不需要它
-# 如果被 tensorrt-edgellm 间接安装了，卸载掉
-if python3 -c "import deepspeed" 2>/dev/null; then
-    echo "  卸载 deepspeed（与 pydantic v2 不兼容，量化不需要）"
-    uv pip uninstall deepspeed
-fi
+# 强制重装 numpy 和 scikit-learn，确保二进制匹配
+# （scikit-learn 的 C 扩展需要和 numpy ABI 一致）
+uv pip install --force-reinstall numpy scikit-learn
+
+# deepspeed 与 pydantic v2 冲突，量化/导出不需要它，直接卸载
+uv pip uninstall deepspeed 2>/dev/null || true
 
 # ==================== 验证安装 ====================
 echo
