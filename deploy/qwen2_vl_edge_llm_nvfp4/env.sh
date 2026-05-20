@@ -71,7 +71,7 @@ export OUTPUT_FILE="$DEVICE_WORKSPACE_DIR/output_vlm.json"
 # Host-side workspace root used to store downloaded/quantized models, ONNX
 # exports, and the default input/output JSON files. This is mainly consumed
 # by the x86 export scripts and can also be reused on the device if desired.
-export WORKSPACE_DIR="/home/wangxinhao/QVLM/tensorrt-edgellm-workspace"
+export WORKSPACE_DIR="/data/wangxinhao/QVLM/tensorrt-edgellm-workspace"
 
 # HuggingFace model id passed into TensorRT Edge-LLM export tools. This can
 # be a Hub id such as `Qwen/Qwen2-VL-7B-Instruct` or a local HF checkpoint.
