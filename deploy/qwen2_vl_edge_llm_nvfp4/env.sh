@@ -20,6 +20,10 @@ export MODEL_NAME="Qwen2-VL-7B-Instruct"
 # `llm_inference` are resolved from this directory.
 export EDGE_LLM_REPO="/data/wangxinhao/TensorRT-Edge-LLM"
 
+# TensorRT Edge-LLM 自定义插件库路径，build engine 时必须加载
+# 编译 TensorRT-Edge-LLM 后生成在 build/ 目录下
+export EDGELLM_PLUGIN_PATH="${EDGE_LLM_REPO}/build/libNvInfer_edgellm_plugin.so"
+
 # SSH username used by the host-side transfer script when copying ONNX files
 # from the x86 machine to the Thor device.
 export DEVICE_USER="vdig"
