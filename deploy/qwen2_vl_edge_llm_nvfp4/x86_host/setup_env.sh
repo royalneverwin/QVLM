@@ -23,7 +23,7 @@ source "${DEPLOY_DIR}/env.sh"
 
 # ==================== 配置区域 ====================
 # TensorRT-Edge-LLM 仓库路径（需要先 git clone）
-EDGE_LLM_REPO_PATH="${EDGE_LLM_REPO_PATH:-$HOME/TensorRT-Edge-LLM}"
+EDGE_LLM_REPO_PATH="/data/wangxinhao/TensorRT-Edge-LLM"
 
 # Python 虚拟环境路径
 VENV_DIR="${VENV_DIR:-$(cd "${DEPLOY_DIR}/../.." && pwd)/.venv}"
