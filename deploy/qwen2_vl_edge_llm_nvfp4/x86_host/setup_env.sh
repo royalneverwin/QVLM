@@ -54,10 +54,15 @@ fi
 echo
 echo "[1/5] 创建 Python 虚拟环境: ${VENV_DIR}"
 
+if ! command -v uv >/dev/null 2>&1; then
+    echo "错误：未找到 uv，请先安装: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+    exit 1
+fi
+
 if [[ -d "${VENV_DIR}" ]]; then
     echo "  已存在，跳过创建（如需重建请先 rm -rf ${VENV_DIR}）"
 else
-    python3 -m venv "${VENV_DIR}"
+    uv venv "${VENV_DIR}" --python 3.10
     echo "  创建完成"
 fi
 
@@ -65,15 +70,16 @@ fi
 source "${VENV_DIR}/bin/activate"
 echo "  已激活: $(which python3)"
 
-# ==================== 升级基础工具 ====================
+# ==================== 同步项目依赖 ====================
 echo
-echo "[2/5] 升级 pip/setuptools"
-python3 -m pip install --upgrade pip setuptools wheel -q
+echo "[2/5] uv sync 同步项目依赖"
+QVLM_ROOT="$(cd "${DEPLOY_DIR}/../.." && pwd)"
+uv sync --project "${QVLM_ROOT}"
 
 # ==================== 安装 TensorRT Edge-LLM ====================
 echo
 echo "[3/5] 安装 TensorRT Edge-LLM（提供量化/导出 CLI 工具）"
-python3 -m pip install "${EDGE_LLM_REPO_PATH}" -q
+uv pip install "${EDGE_LLM_REPO_PATH}"
 
 # ==================== 安装/修复依赖 ====================
 echo
@@ -82,18 +88,17 @@ echo "[4/5] 安装兼容版本的依赖包"
 # transformers >= 5.2.0：支持 qwen3_5、qwen3_vl 模块
 # timm >= 1.0.0：修复 gemma3n 的 ImageNetInfo 导入
 # numpy + scikit-learn：确保二进制兼容
-python3 -m pip install \
+uv pip install \
     "transformers>=5.2.0" \
     "timm>=1.0.0" \
     "numpy>=1.26" \
-    "scikit-learn" \
-    -q
+    "scikit-learn"
 
 # deepspeed 与 pydantic v2 冲突，量化/导出不需要它
 # 如果被 tensorrt-edgellm 间接安装了，卸载掉
 if python3 -c "import deepspeed" 2>/dev/null; then
     echo "  卸载 deepspeed（与 pydantic v2 不兼容，量化不需要）"
-    python3 -m pip uninstall deepspeed -y -q
+    uv pip uninstall deepspeed
 fi
 
 # ==================== 验证安装 ====================
