@@ -117,13 +117,35 @@ fi
 echo "  CUDA_HOME: ${CUDA_HOME:-not set}"
 echo "  TRT_PACKAGE_DIR: ${TRT_PACKAGE_DIR}"
 
-# Thor (Jetson Orin) GPU 是 SM 87，必须包含 SM 87 的 FMHA 内核
-# 默认编译会排除 SM 87，导致推理时 "no kernel to implement MHA" 崩溃
-# 设置 FMHA_EXCLUDE_SM 为空确保所有 SM 架构都被编译
+# 自动检测 GPU compute capability，用于编译对应的 FMHA cubin
+# CMake 根据 CMAKE_CUDA_ARCHITECTURES 决定编译哪些 FMHA kernel
+GPU_ARCH="${GPU_ARCH:-}"
+if [[ -z "${GPU_ARCH}" ]]; then
+    # 尝试用 python3 + torch 检测
+    GPU_ARCH=$(python3 -c "import torch; cap=torch.cuda.get_device_capability(); print(f'{cap[0]*10+cap[1]}')" 2>/dev/null || true)
+fi
+if [[ -z "${GPU_ARCH}" ]]; then
+    # 尝试 nvidia-smi
+    GPU_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.' || true)
+fi
+if [[ -z "${GPU_ARCH}" ]]; then
+    echo "  警告: 无法自动检测 GPU 架构，使用默认值 87"
+    GPU_ARCH="87"
+fi
+echo "  GPU_ARCH (SM): ${GPU_ARCH}"
+
+# SM 110 (Thor/Blackwell) 的 FMHA cubin 需要手动添加到 TensorRT-Edge-LLM
+# 在 cpp/CMakeLists.txt 的 FMHA_ALL_SM_VERSIONS 中添加 110
+EDGE_LLM_CPP_CMAKE="${EDGE_LLM_REPO_PATH}/cpp/CMakeLists.txt"
+if ! grep -q "     110" "${EDGE_LLM_CPP_CMAKE}" 2>/dev/null; then
+    echo "  添加 SM 110 到 FMHA_ALL_SM_VERSIONS..."
+    sed -i '/     121)/i\     110' "${EDGE_LLM_CPP_CMAKE}"
+fi
+
 cmake .. \
     -DTRT_PACKAGE_DIR="${TRT_PACKAGE_DIR}" \
     -DCUDA_DIR="${CUDA_HOME:-/usr/local/cuda}" \
-    -DFMHA_EXCLUDE_SM=""
+    -DCMAKE_CUDA_ARCHITECTURES="${GPU_ARCH}"
 
 make -j"$(nproc)"
 
