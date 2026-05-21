@@ -40,8 +40,10 @@ fi
 # 时间记录文件
 TIMING_LOG="${OUTPUTS_DIR}/timing.log"
 ERROR_LOG="${OUTPUTS_DIR}/inference_errors.log"
+TOKEN_LOG="${OUTPUTS_DIR}/visionzip_tokens.log"
 > "${TIMING_LOG}"
 > "${ERROR_LOG}"
+> "${TOKEN_LOG}"
 
 echo "╔══════════════════════════════════════════════╗"
 echo "║   ScienceQA 推理 - Thor (TensorRT Edge-LLM)  ║"
@@ -112,7 +114,15 @@ for r in requests[:1]:
         --inputFile "${INPUT_FILE}" \
         --outputFile "${OUTPUT_FILE}" \
         > /dev/null \
-        2> >(tee "${STDERR_FILE}" | grep -E "\[ERROR\]|ERROR|Error|terminate|what\(\)|std::" >> "${ERROR_LOG}" || true); then
+        2> >(tee "${STDERR_FILE}" | awk -v err_log="${ERROR_LOG}" -v token_log="${TOKEN_LOG}" -v batch="${BASENAME}" '
+/VisionZip tokens:/ {
+    print "  " $0
+    print batch ": " $0 >> token_log
+}
+/\[ERROR\]|ERROR|Error|terminate|what\(\)|std::/ {
+    print >> err_log
+}
+' || true); then
 
         END_TIME=$(date +%s%N)
         ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
@@ -171,4 +181,5 @@ fi
 echo "╚══════════════════════════════════════════════╝"
 echo
 echo "时间日志: ${TIMING_LOG}"
+echo "VisionZip token 日志: ${TOKEN_LOG}"
 echo "错误日志: ${OUTPUTS_DIR}/inference_errors.log"
