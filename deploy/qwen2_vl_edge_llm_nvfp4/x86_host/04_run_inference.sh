@@ -97,10 +97,7 @@ for r in requests[:1]:
                 text = content
     else:
         text = r.get('prompt', '')
-    if len(text) > 300:
-        print('...' + text[-300:])
-    else:
-        print(text)
+    print(text)
 " 2>/dev/null || echo "[无法解析输入]")
     echo "  📥 Prompt: ${PROMPT}"
     echo
