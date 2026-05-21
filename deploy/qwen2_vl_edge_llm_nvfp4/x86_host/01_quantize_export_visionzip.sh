@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Export the NVFP4 LLM plus a Qwen2-VL visual ONNX with VisionZip token deletion.
+
+# VISIONZIP_PRUNE_RATE=0.875 \
+# bash deploy/qwen2_vl_edge_llm_nvfp4/x86_host/01_quantize_export_visionzip.sh
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
