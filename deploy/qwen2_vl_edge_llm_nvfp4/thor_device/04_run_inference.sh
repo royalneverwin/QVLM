@@ -123,20 +123,19 @@ for r in requests[:1]:
         --inputFile "${INPUT_FILE}" \
         --outputFile "${OUTPUT_FILE}" \
         > /dev/null \
-        2> >(tee "${STDERR_FILE}" | awk -v err_log="${ERROR_LOG}" -v token_log="${TOKEN_LOG}" -v batch="${BASENAME}" '
-/VisionZip tokens:/ {
-    print "  " $0
-    print batch ": " $0 >> token_log
-}
-/\[ERROR\]|ERROR|Error|terminate|what\(\)|std::/ {
-    print >> err_log
-}
-' || true); then
+        2> "${STDERR_FILE}"; then
 
         END_TIME=$(date +%s%N)
         ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
         TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
         SUCCEEDED=$((SUCCEEDED + 1))
+
+        TOKEN_LINE="$(grep -F "VisionZip tokens:" "${STDERR_FILE}" | tail -n 1 || true)"
+        if [[ -n "${TOKEN_LINE}" ]]; then
+            echo "  ${TOKEN_LINE}"
+            echo "${BASENAME}: ${TOKEN_LINE}" >> "${TOKEN_LOG}"
+        fi
+        grep -E "\[ERROR\]|ERROR|Error|terminate|what\(\)|std::" "${STDERR_FILE}" >> "${ERROR_LOG}" || true
 
         # 打印输出
         OUTPUT_TEXT=$(python3 -c "
@@ -163,6 +162,12 @@ print(text[:500])
         ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
         TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
         FAILED=$((FAILED + 1))
+        TOKEN_LINE="$(grep -F "VisionZip tokens:" "${STDERR_FILE}" | tail -n 1 || true)"
+        if [[ -n "${TOKEN_LINE}" ]]; then
+            echo "  ${TOKEN_LINE}"
+            echo "${BASENAME}: ${TOKEN_LINE}" >> "${TOKEN_LOG}"
+        fi
+        grep -E "\[ERROR\]|ERROR|Error|terminate|what\(\)|std::" "${STDERR_FILE}" >> "${ERROR_LOG}" || true
         echo "  FAILED (${ELAPSED_MS} ms)"
         echo "${BASENAME}: FAILED (${ELAPSED_MS} ms)" >> "${TIMING_LOG}"
     fi
