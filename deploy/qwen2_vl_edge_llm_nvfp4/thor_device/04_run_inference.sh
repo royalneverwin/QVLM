@@ -39,7 +39,9 @@ fi
 
 # 时间记录文件
 TIMING_LOG="${OUTPUTS_DIR}/timing.log"
+ERROR_LOG="${OUTPUTS_DIR}/inference_errors.log"
 > "${TIMING_LOG}"
+> "${ERROR_LOG}"
 
 echo "╔══════════════════════════════════════════════╗"
 echo "║   ScienceQA 推理 - Thor (TensorRT Edge-LLM)  ║"
@@ -100,7 +102,7 @@ for r in requests[:1]:
     echo "  Prompt: ${PROMPT}"
     echo
 
-    # 计时推理，保存完整 stderr 到 .stderr 文件用于调试
+    # 计时推理，抑制 TensorRT INFO 输出；完整 stderr 仍按 batch 保存用于调试
     STDERR_FILE="${OUTPUTS_DIR}/${BASENAME%.json}.stderr"
     START_TIME=$(date +%s%N)
 
@@ -109,7 +111,8 @@ for r in requests[:1]:
         --multimodalEngineDir "${DEVICE_ENGINE_VISUAL_DIR}" \
         --inputFile "${INPUT_FILE}" \
         --outputFile "${OUTPUT_FILE}" \
-        2> "${STDERR_FILE}"; then
+        > /dev/null \
+        2> >(tee "${STDERR_FILE}" | grep -E "\[ERROR\]|ERROR|Error|terminate|what\(\)|std::" >> "${ERROR_LOG}" || true); then
 
         END_TIME=$(date +%s%N)
         ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))

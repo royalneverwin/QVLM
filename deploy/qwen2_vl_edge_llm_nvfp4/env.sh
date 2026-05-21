@@ -65,6 +65,16 @@ export MAX_IMAGE_TOKENS="4096"
 # Qwen2-VL 标准模型 720p 图像约 1280 tokens，设 1536 留余量
 export MAX_IMAGE_TOKENS_PER_IMAGE="1536"
 
+# VisionZip token deletion settings for Qwen2-VL visual export.
+# The visual engine keeps a fixed number of image tokens derived from
+# MAX_IMAGE_TOKENS_PER_IMAGE * (1 - VISIONZIP_PRUNE_RATE) unless
+# VISIONZIP_KEEP_TOKENS is set explicitly in the caller.
+export VISIONZIP_PRUNE_RATE="${VISIONZIP_PRUNE_RATE:-0.5}"
+export VISIONZIP_ALPHA="${VISIONZIP_ALPHA:-0.5}"
+export VISIONZIP_QUANT_METHOD="${VISIONZIP_QUANT_METHOD:-quant_error}"
+export VISIONZIP_KEEP_TOKENS="${VISIONZIP_KEEP_TOKENS:-}"
+export VISIONZIP_TAG="${VISIONZIP_TAG:-visionzip_prune_${VISIONZIP_PRUNE_RATE//./p}}"
+
 # Default request JSON path used by `thor_device/04_run_inference.sh`.
 # The file is expected to live on the Thor device when inference is run.
 export INPUT_FILE="$DEVICE_WORKSPACE_DIR/input_vlm.json"
@@ -109,7 +119,8 @@ export EXPORT_QUANTIZED_LLM_DIR="$EXPORT_MODEL_DIR/quantized/llm"
 export EXPORT_ONNX_LLM_DIR="$EXPORT_MODEL_DIR/onnx/llm"
 
 # Export-stage ONNX output directory for the visual encoder component.
-export EXPORT_ONNX_VISUAL_DIR="$EXPORT_MODEL_DIR/onnx/visual"
+export EXPORT_ONNX_VISUAL_DIR="${EXPORT_ONNX_VISUAL_DIR:-$EXPORT_MODEL_DIR/onnx/visual}"
+export EXPORT_ONNX_VISUAL_VISIONZIP_DIR="${EXPORT_ONNX_VISUAL_VISIONZIP_DIR:-$EXPORT_MODEL_DIR/onnx/visual_${VISIONZIP_TAG}}"
 
 # Device-side root directory for this model's artifacts when scripts run
 # locally on the Thor device.
@@ -119,13 +130,15 @@ export DEVICE_MODEL_DIR="$DEVICE_WORKSPACE_DIR/$MODEL_NAME"
 export DEVICE_ONNX_LLM_DIR="$DEVICE_MODEL_DIR/onnx/llm"
 
 # Device-side location of the transferred visual-encoder ONNX files.
-export DEVICE_ONNX_VISUAL_DIR="$DEVICE_MODEL_DIR/onnx/visual"
+export DEVICE_ONNX_VISUAL_DIR="${DEVICE_ONNX_VISUAL_DIR:-$DEVICE_MODEL_DIR/onnx/visual}"
+export DEVICE_ONNX_VISUAL_VISIONZIP_DIR="${DEVICE_ONNX_VISUAL_VISIONZIP_DIR:-$DEVICE_MODEL_DIR/onnx/visual_${VISIONZIP_TAG}}"
 
 # Output directory for the built TensorRT language-model engine on Thor.
 export DEVICE_ENGINE_LLM_DIR="$DEVICE_MODEL_DIR/engines/llm"
 
 # Output directory for the built TensorRT visual engine on Thor.
-export DEVICE_ENGINE_VISUAL_DIR="$DEVICE_MODEL_DIR/engines/visual"
+export DEVICE_ENGINE_VISUAL_DIR="${DEVICE_ENGINE_VISUAL_DIR:-$DEVICE_MODEL_DIR/engines/visual}"
+export DEVICE_ENGINE_VISUAL_VISIONZIP_DIR="${DEVICE_ENGINE_VISUAL_VISIONZIP_DIR:-$DEVICE_MODEL_DIR/engines/visual_${VISIONZIP_TAG}}"
 
 
 ############ X86 Local Build/Inference Related ##################
@@ -133,7 +146,8 @@ export DEVICE_ENGINE_VISUAL_DIR="$DEVICE_MODEL_DIR/engines/visual"
 
 # x86 侧 TensorRT engine 输出目录
 export X86_ENGINE_LLM_DIR="$EXPORT_MODEL_DIR/engines/llm"
-export X86_ENGINE_VISUAL_DIR="$EXPORT_MODEL_DIR/engines/visual"
+export X86_ENGINE_VISUAL_DIR="${X86_ENGINE_VISUAL_DIR:-$EXPORT_MODEL_DIR/engines/visual}"
+export X86_ENGINE_VISUAL_VISIONZIP_DIR="${X86_ENGINE_VISUAL_VISIONZIP_DIR:-$EXPORT_MODEL_DIR/engines/visual_${VISIONZIP_TAG}}"
 
 # x86 侧推理输入/输出文件
 export X86_INPUT_FILE="$WORKSPACE_DIR/input_vlm.json"
