@@ -18,7 +18,8 @@ export MODEL_NAME="Qwen2-VL-7B-Instruct"
 # that runs build/inference commands. On the Thor device this should point
 # to the built Edge-LLM C++ repo because `llm_build`, `visual_build`, and
 # `llm_inference` are resolved from this directory.
-export EDGE_LLM_REPO="/data/wangxinhao/TensorRT-Edge-LLM"
+# 可通过环境变量覆盖（Thor 和 x86 路径不同）
+export EDGE_LLM_REPO="${EDGE_LLM_REPO:-/data/wangxinhao/TensorRT-Edge-LLM}"
 
 # TensorRT Edge-LLM 自定义插件库路径，build engine 时必须加载
 # 编译 TensorRT-Edge-LLM 后生成在 build/ 目录下
@@ -151,3 +152,9 @@ export SCIENCEQA_SPLIT="test"
 
 # 最大评估样本数（0 = 全部）
 export SCIENCEQA_MAX_SAMPLES="0"
+
+
+############ Thor ScienceQA Evaluation Related ##################
+# Thor 设备上 ScienceQA 相关路径
+export DEVICE_SCIENCEQA_DATA_DIR="$DEVICE_WORKSPACE_DIR/scienceqa_data"
+export DEVICE_SCIENCEQA_EVAL_DIR="$DEVICE_WORKSPACE_DIR/scienceqa_eval"
