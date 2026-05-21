@@ -135,3 +135,17 @@ export X86_ENGINE_VISUAL_DIR="$EXPORT_MODEL_DIR/engines/visual"
 # x86 侧推理输入/输出文件
 export X86_INPUT_FILE="$WORKSPACE_DIR/input_vlm.json"
 export X86_OUTPUT_FILE="$WORKSPACE_DIR/output_vlm.json"
+
+
+############ ScienceQA Evaluation Related ##################
+# ScienceQA 数据集存放目录
+export SCIENCEQA_DATA_DIR="$WORKSPACE_DIR/scienceqa_data"
+
+# ScienceQA 推理工作目录（输入 batch 文件 + 输出 + metadata）
+export SCIENCEQA_EVAL_DIR="$WORKSPACE_DIR/scienceqa_eval"
+
+# ScienceQA 评估用的 split
+export SCIENCEQA_SPLIT="test"
+
+# 最大评估样本数（0 = 全部）
+export SCIENCEQA_MAX_SAMPLES="0"
