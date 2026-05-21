@@ -135,12 +135,9 @@ fi
 echo "  GPU_ARCH (SM): ${GPU_ARCH}"
 
 # SM 110 (Thor/Blackwell) 的 FMHA cubin 需要手动添加到 TensorRT-Edge-LLM
-# 在 cpp/CMakeLists.txt 的 FMHA_ALL_SM_VERSIONS 中添加 110
-EDGE_LLM_CPP_CMAKE="${EDGE_LLM_REPO_PATH}/cpp/CMakeLists.txt"
-if ! grep -q "     110" "${EDGE_LLM_CPP_CMAKE}" 2>/dev/null; then
-    echo "  添加 SM 110 到 FMHA_ALL_SM_VERSIONS..."
-    sed -i '/     121)/i\     110' "${EDGE_LLM_CPP_CMAKE}"
-fi
+# 如果编译报 "no kernel to implement MHA"，请手动编辑：
+#   ~/TensorRT-Edge-LLM/cpp/CMakeLists.txt
+# 在 FMHA_ALL_SM_VERSIONS 列表中 121 前添加 110
 
 cmake .. \
     -DTRT_PACKAGE_DIR="${TRT_PACKAGE_DIR}" \
