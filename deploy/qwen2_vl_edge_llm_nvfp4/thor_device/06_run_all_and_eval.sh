@@ -98,22 +98,43 @@ for ((i=0; i<NUM_EXP; i++)); do
 
     # ---------- 计算平均推理时间 ----------
     TIMING_LOG="${OUTPUTS_DIR}/timing.log"
+    AVG_VISUAL_MS="N/A"
+    AVG_LLM_MS="N/A"
     AVG_MS="N/A"
     SUCCEEDED_CNT=0
     if [[ -f "${TIMING_LOG}" ]]; then
-        # 只统计成功（"xxx ms" 行，排除 FAILED 行）的平均值
-        AVG_MS=$(awk -F': ' '
+        # 只统计成功行，分别计算 visual / llm / total 平均值
+        AVG_VISUAL_MS=$(awk '
             /FAILED/ { next }
-            /ms$/ {
-                # 取 "<num> ms" 中的数字
-                n = split($2, parts, " ")
-                if (n >= 1) { sum += parts[1]; cnt += 1 }
+            /visual=/ {
+                split($0, a, "visual="); split(a[2], b, " ")
+                if (b[1] != "N/A") { sum += b[1]; cnt += 1 }
             }
             END {
                 if (cnt > 0) printf "%.2f", sum / cnt; else printf "N/A"
             }
         ' "${TIMING_LOG}")
-        SUCCEEDED_CNT=$(grep -cE 'ms$' "${TIMING_LOG}" | head -n 1 || echo 0)
+        AVG_LLM_MS=$(awk '
+            /FAILED/ { next }
+            /llm=/ {
+                split($0, a, "llm="); split(a[2], b, " ")
+                if (b[1] != "N/A") { sum += b[1]; cnt += 1 }
+            }
+            END {
+                if (cnt > 0) printf "%.2f", sum / cnt; else printf "N/A"
+            }
+        ' "${TIMING_LOG}")
+        AVG_MS=$(awk '
+            /FAILED/ { next }
+            /total=/ {
+                split($0, a, "total="); split(a[2], b, " ")
+                if (b[1] != "N/A") { sum += b[1]; cnt += 1 }
+            }
+            END {
+                if (cnt > 0) printf "%.2f", sum / cnt; else printf "N/A"
+            }
+        ' "${TIMING_LOG}")
+        SUCCEEDED_CNT=$(grep -vc "FAILED" "${TIMING_LOG}" | head -n 1 || echo 0)
     fi
 
     # ---------- 提取准确率 ----------
@@ -145,7 +166,9 @@ except Exception as e:
         echo "  result_file:    ${RESULT_FILE}"
         echo "  推理总耗时(s):  ${INFER_ELAPSED}"
         echo "  成功 batch 数:  ${SUCCEEDED_CNT}"
-        echo "  平均推理(ms):   ${AVG_MS}"
+        echo "  平均 visual(ms): ${AVG_VISUAL_MS}"
+        echo "  平均 llm(ms):    ${AVG_LLM_MS}"
+        echo "  平均 total(ms):  ${AVG_MS}"
         echo "  准确率:         ${ACCURACY}"
         echo
     } | tee -a "${SUMMARY_LOG}"

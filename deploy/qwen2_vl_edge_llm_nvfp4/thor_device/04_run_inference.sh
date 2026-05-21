@@ -130,6 +130,12 @@ for r in requests[:1]:
         TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
         SUCCEEDED=$((SUCCEEDED + 1))
 
+        RUNTIME_TIMING_LINE="$(grep -F "EdgeLLM timing:" "${STDERR_FILE}" | tail -n 1 || true)"
+        VISUAL_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*visual_ms=([0-9.]+).*/\1/p')"
+        LLM_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*llm_ms=([0-9.]+).*/\1/p')"
+        VISUAL_PART_MS="${VISUAL_PART_MS:-N/A}"
+        LLM_PART_MS="${LLM_PART_MS:-N/A}"
+
         TOKEN_LINE="$(grep -F "VisionZip tokens:" "${STDERR_FILE}" | tail -n 1 || true)"
         if [[ -n "${TOKEN_LINE}" ]]; then
             echo "  ${TOKEN_LINE}"
@@ -155,13 +161,20 @@ print(text[:500])
 " 2>/dev/null || echo "[无法解析输出]")
 
         echo "  Output: ${OUTPUT_TEXT}"
-        echo "  Time: ${ELAPSED_MS} ms"
-        echo "${BASENAME}: ${ELAPSED_MS} ms" >> "${TIMING_LOG}"
+        echo "  Visual Time: ${VISUAL_PART_MS} ms"
+        echo "  LLM Time: ${LLM_PART_MS} ms"
+        echo "  Total Time: ${ELAPSED_MS} ms"
+        echo "${BASENAME}: visual=${VISUAL_PART_MS} ms, llm=${LLM_PART_MS} ms, total=${ELAPSED_MS} ms" >> "${TIMING_LOG}"
     else
         END_TIME=$(date +%s%N)
         ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
         TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
         FAILED=$((FAILED + 1))
+        RUNTIME_TIMING_LINE="$(grep -F "EdgeLLM timing:" "${STDERR_FILE}" | tail -n 1 || true)"
+        VISUAL_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*visual_ms=([0-9.]+).*/\1/p')"
+        LLM_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*llm_ms=([0-9.]+).*/\1/p')"
+        VISUAL_PART_MS="${VISUAL_PART_MS:-N/A}"
+        LLM_PART_MS="${LLM_PART_MS:-N/A}"
         TOKEN_LINE="$(grep -F "VisionZip tokens:" "${STDERR_FILE}" | tail -n 1 || true)"
         if [[ -n "${TOKEN_LINE}" ]]; then
             echo "  ${TOKEN_LINE}"
@@ -169,7 +182,9 @@ print(text[:500])
         fi
         grep -E "\[ERROR\]|ERROR|Error|terminate|what\(\)|std::" "${STDERR_FILE}" >> "${ERROR_LOG}" || true
         echo "  FAILED (${ELAPSED_MS} ms)"
-        echo "${BASENAME}: FAILED (${ELAPSED_MS} ms)" >> "${TIMING_LOG}"
+        echo "  Visual Time: ${VISUAL_PART_MS} ms"
+        echo "  LLM Time: ${LLM_PART_MS} ms"
+        echo "${BASENAME}: FAILED visual=${VISUAL_PART_MS} ms, llm=${LLM_PART_MS} ms, total=${ELAPSED_MS} ms" >> "${TIMING_LOG}"
     fi
     echo
 done
@@ -181,6 +196,26 @@ if [[ ${PROCESSED} -gt 0 ]]; then
 else
     AVG_TIME=0
 fi
+AVG_VISUAL_TIME=$(awk '
+    /FAILED/ { next }
+    /visual=/ {
+        split($0, a, "visual="); split(a[2], b, " ")
+        if (b[1] != "N/A") { sum += b[1]; cnt += 1 }
+    }
+    END {
+        if (cnt > 0) printf "%.2f", sum / cnt; else printf "N/A"
+    }
+' "${TIMING_LOG}")
+AVG_LLM_TIME=$(awk '
+    /FAILED/ { next }
+    /llm=/ {
+        split($0, a, "llm="); split(a[2], b, " ")
+        if (b[1] != "N/A") { sum += b[1]; cnt += 1 }
+    }
+    END {
+        if (cnt > 0) printf "%.2f", sum / cnt; else printf "N/A"
+    }
+' "${TIMING_LOG}")
 
 echo "╔══════════════════════════════════════════════╗"
 echo "║              推理完成 - 统计                  ║"
@@ -190,7 +225,9 @@ echo "║  失败:    ${FAILED}"
 echo "║  跳过:    ${SKIPPED} (已存在)"
 echo "║  总耗时:  ${TOTAL_TIME} ms"
 if [[ ${PROCESSED} -gt 0 ]]; then
-echo "║  平均:    ${AVG_TIME} ms/batch"
+echo "║  平均 visual: ${AVG_VISUAL_TIME} ms/batch"
+echo "║  平均 LLM:    ${AVG_LLM_TIME} ms/batch"
+echo "║  平均 total:  ${AVG_TIME} ms/batch"
 fi
 echo "╚══════════════════════════════════════════════╝"
 echo
