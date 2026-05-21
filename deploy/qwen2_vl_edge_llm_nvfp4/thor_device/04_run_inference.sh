@@ -50,7 +50,8 @@ fi
 TIMING_LOG="${OUTPUTS_DIR}/timing.log"
 ERROR_LOG="${OUTPUTS_DIR}/inference_errors.log"
 TOKEN_LOG="${OUTPUTS_DIR}/visionzip_tokens.log"
-> "${TIMING_LOG}"
+# 保留已有 timing.log；脚本会跳过已有 output 的 batch，不能在重跑时清空历史计时。
+touch "${TIMING_LOG}"
 > "${ERROR_LOG}"
 > "${TOKEN_LOG}"
 
@@ -115,6 +116,7 @@ for r in requests[:1]:
 
     # 计时推理，抑制 TensorRT INFO 输出；完整 stderr 仍按 batch 保存用于调试
     STDERR_FILE="${OUTPUTS_DIR}/${BASENAME%.json}.stderr"
+    STDOUT_FILE="${OUTPUTS_DIR}/${BASENAME%.json}.stdout"
     START_TIME=$(date +%s%N)
 
     if "${LLM_INFER_BIN}" \
@@ -122,7 +124,7 @@ for r in requests[:1]:
         --multimodalEngineDir "${DEVICE_ENGINE_VISUAL_DIR}" \
         --inputFile "${INPUT_FILE}" \
         --outputFile "${OUTPUT_FILE}" \
-        > /dev/null \
+        > "${STDOUT_FILE}" \
         2> "${STDERR_FILE}"; then
 
         END_TIME=$(date +%s%N)
@@ -130,7 +132,7 @@ for r in requests[:1]:
         TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
         SUCCEEDED=$((SUCCEEDED + 1))
 
-        RUNTIME_TIMING_LINE="$(grep -F "EdgeLLM timing:" "${STDERR_FILE}" | tail -n 1 || true)"
+        RUNTIME_TIMING_LINE="$(grep -hF "EdgeLLM timing:" "${STDERR_FILE}" "${STDOUT_FILE}" | tail -n 1 || true)"
         VISUAL_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*visual_ms=([0-9.]+).*/\1/p')"
         LLM_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*llm_ms=([0-9.]+).*/\1/p')"
         VISUAL_PART_MS="${VISUAL_PART_MS:-N/A}"
@@ -170,7 +172,7 @@ print(text[:500])
         ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
         TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
         FAILED=$((FAILED + 1))
-        RUNTIME_TIMING_LINE="$(grep -F "EdgeLLM timing:" "${STDERR_FILE}" | tail -n 1 || true)"
+        RUNTIME_TIMING_LINE="$(grep -hF "EdgeLLM timing:" "${STDERR_FILE}" "${STDOUT_FILE}" | tail -n 1 || true)"
         VISUAL_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*visual_ms=([0-9.]+).*/\1/p')"
         LLM_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*llm_ms=([0-9.]+).*/\1/p')"
         VISUAL_PART_MS="${VISUAL_PART_MS:-N/A}"
