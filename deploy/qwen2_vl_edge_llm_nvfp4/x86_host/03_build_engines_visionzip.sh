@@ -9,22 +9,8 @@ source "${DEPLOY_DIR}/env.sh"
 LLM_BUILD_BIN="${EDGE_LLM_REPO}/build/examples/llm/llm_build"
 VISUAL_BUILD_BIN="${EDGE_LLM_REPO}/build/examples/multimodal/visual_build"
 
-derive_keep_tokens() {
-    if [[ -n "${VISIONZIP_KEEP_TOKENS}" ]]; then
-        echo "${VISIONZIP_KEEP_TOKENS}"
-    else
-        python3 -c 'import sys; r=float(sys.argv[1]); m=int(sys.argv[2]); print(max(1, int(round(m * (1.0 - r)))))' \
-          "${VISIONZIP_PRUNE_RATE}" "${MAX_IMAGE_TOKENS_PER_IMAGE}"
-    fi
-}
-
 if [[ ! -x "${LLM_BUILD_BIN}" ]]; then
     echo "Missing llm_build binary: ${LLM_BUILD_BIN}" >&2
-    exit 1
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "Missing required command: python3" >&2
     exit 1
 fi
 
@@ -42,15 +28,6 @@ fi
 if [[ ! -d "${EXPORT_ONNX_VISUAL_VISIONZIP_DIR}" ]]; then
     echo "VisionZip visual ONNX directory not found: ${EXPORT_ONNX_VISUAL_VISIONZIP_DIR}" >&2
     echo "Run x86_host/01_quantize_export_visionzip.sh first." >&2
-    exit 1
-fi
-
-VISIONZIP_EFFECTIVE_KEEP_TOKENS="$(derive_keep_tokens)"
-VISIONZIP_BUILD_MIN_IMAGE_TOKENS="$(python3 -c 'import sys; print(max(int(sys.argv[1]), int(sys.argv[2])))' \
-  "${MIN_IMAGE_TOKENS}" "${VISIONZIP_EFFECTIVE_KEEP_TOKENS}")"
-
-if (( VISIONZIP_EFFECTIVE_KEEP_TOKENS > MAX_IMAGE_TOKENS_PER_IMAGE )); then
-    echo "VisionZip keep_tokens=${VISIONZIP_EFFECTIVE_KEEP_TOKENS} exceeds MAX_IMAGE_TOKENS_PER_IMAGE=${MAX_IMAGE_TOKENS_PER_IMAGE}" >&2
     exit 1
 fi
 
@@ -82,11 +59,11 @@ if [[ "${VISUAL_ENGINE_EXISTS}" == "true" ]]; then
     echo "[2/2] VisionZip visual engine already exists, skipping (delete ${X86_ENGINE_VISUAL_VISIONZIP_DIR} to rebuild)"
 else
     echo "[2/2] Building VisionZip visual engine on x86"
-    echo "      prune_rate=${VISIONZIP_PRUNE_RATE}, keep_tokens=${VISIONZIP_EFFECTIVE_KEEP_TOKENS}, minImageTokens=${VISIONZIP_BUILD_MIN_IMAGE_TOKENS}"
+    echo "      prune_rate=${VISIONZIP_PRUNE_RATE}, keep_tokens=floor(actual_image_tokens * (1 - prune_rate))"
     "${VISUAL_BUILD_BIN}" \
       --onnxDir "${EXPORT_ONNX_VISUAL_VISIONZIP_DIR}" \
       --engineDir "${X86_ENGINE_VISUAL_VISIONZIP_DIR}" \
-      --minImageTokens "${VISIONZIP_BUILD_MIN_IMAGE_TOKENS}" \
+      --minImageTokens "${MIN_IMAGE_TOKENS}" \
       --maxImageTokens "${MAX_IMAGE_TOKENS}" \
       --maxImageTokensPerImage "${MAX_IMAGE_TOKENS_PER_IMAGE}"
 fi

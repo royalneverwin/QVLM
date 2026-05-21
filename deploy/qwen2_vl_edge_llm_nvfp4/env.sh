@@ -40,15 +40,15 @@ export DEVICE_WORKSPACE_DIR="/home/vdig/wangxinhao/QVLM/tensorrt-edgellm-workspa
 
 # Maximum batch size baked into the LLM TensorRT engine.
 # Higher values improve flexibility but increase engine build/runtime memory.
-export MAX_BATCH_SIZE="1"
+export MAX_BATCH_SIZE="${MAX_BATCH_SIZE:-1}"
 
 # Maximum text input length used when building the LLM engine. This controls
 # how much prompt text the engine is prepared to accept before generation.
-export MAX_INPUT_LEN="1024"
+export MAX_INPUT_LEN="${MAX_INPUT_LEN:-1024}"
 
 # Maximum KV cache capacity baked into the LLM engine. This affects the total
 # context + generation budget and also has direct memory implications.
-export MAX_KV_CACHE_CAPACITY="4096"
+export MAX_KV_CACHE_CAPACITY="${MAX_KV_CACHE_CAPACITY:-4096}"
 
 
 # Lower bound for image token count accepted by the visual engine.
@@ -66,13 +66,11 @@ export MAX_IMAGE_TOKENS="4096"
 export MAX_IMAGE_TOKENS_PER_IMAGE="1536"
 
 # VisionZip token deletion settings for Qwen2-VL visual export.
-# The visual engine keeps a fixed number of image tokens derived from
-# MAX_IMAGE_TOKENS_PER_IMAGE * (1 - VISIONZIP_PRUNE_RATE) unless
-# VISIONZIP_KEEP_TOKENS is set explicitly in the caller.
+# The visual engine keeps floor(actual_image_tokens * (1 - VISIONZIP_PRUNE_RATE))
+# tokens for each image.
 export VISIONZIP_PRUNE_RATE="${VISIONZIP_PRUNE_RATE:-0.5}"
 export VISIONZIP_ALPHA="${VISIONZIP_ALPHA:-0.5}"
 export VISIONZIP_QUANT_METHOD="${VISIONZIP_QUANT_METHOD:-quant_error}"
-export VISIONZIP_KEEP_TOKENS="${VISIONZIP_KEEP_TOKENS:-}"
 export VISIONZIP_TAG="${VISIONZIP_TAG:-visionzip_prune_${VISIONZIP_PRUNE_RATE//./p}}"
 
 # Default request JSON path used by `thor_device/04_run_inference.sh`.
