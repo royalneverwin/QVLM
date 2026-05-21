@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ─── 配置 ───
-EDGE_LLM_REPO_PATH="${EDGE_LLM_REPO_PATH:-$HOME/TensorRT-Edge-LLM}"
+EDGE_LLM_REPO_PATH=/home/vdig/wangxinhao/TensorRT-Edge-LLM
 TRT_PACKAGE_DIR="${TRT_PACKAGE_DIR:-/usr}"
 EDGE_LLM_GIT_URL="https://github.com/NVIDIA/TensorRT-Edge-LLM.git"
 
