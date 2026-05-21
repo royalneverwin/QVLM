@@ -117,9 +117,13 @@ fi
 echo "  CUDA_HOME: ${CUDA_HOME:-not set}"
 echo "  TRT_PACKAGE_DIR: ${TRT_PACKAGE_DIR}"
 
+# Thor (Jetson Orin) GPU 是 SM 87，必须包含 SM 87 的 FMHA 内核
+# 默认编译会排除 SM 87，导致推理时 "no kernel to implement MHA" 崩溃
+# 设置 FMHA_EXCLUDE_SM 为空确保所有 SM 架构都被编译
 cmake .. \
     -DTRT_PACKAGE_DIR="${TRT_PACKAGE_DIR}" \
-    -DCUDA_DIR="${CUDA_HOME:-/usr/local/cuda}"
+    -DCUDA_DIR="${CUDA_HOME:-/usr/local/cuda}" \
+    -DFMHA_EXCLUDE_SM=""
 
 make -j"$(nproc)"
 
