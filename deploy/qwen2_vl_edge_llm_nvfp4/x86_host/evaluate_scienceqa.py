@@ -4,6 +4,7 @@
 
 从 llm_inference 输出的 JSON 文件中提取模型回答，
 与 metadata.json 中的标准答案对比，计算准确率。
+支持部分结果评估（推理未完成时也可运行）。
 """
 
 import argparse
@@ -18,6 +19,11 @@ def extract_answer_letter(text: str) -> str:
 
     # 尝试匹配 "ANSWER: X" 格式
     match = re.search(r"ANSWER:\s*([A-Z])", text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+
+    # 尝试匹配 "The answer is X" 格式
+    match = re.search(r"(?:the\s+)?answer\s+is\s+([A-Z])", text, re.IGNORECASE)
     if match:
         return match.group(1).upper()
 
@@ -39,6 +45,21 @@ def extract_answer_letter(text: str) -> str:
     return ""
 
 
+def get_output_text(output_data: dict) -> str:
+    """从不同格式的输出中提取生成文本"""
+    if "responses" in output_data:
+        responses = output_data["responses"]
+        if responses:
+            return responses[0].get("text", responses[0].get("output_text", ""))
+    if "output_text" in output_data:
+        return output_data["output_text"]
+    if "output" in output_data:
+        return output_data["output"]
+    if "text" in output_data:
+        return output_data["text"]
+    return ""
+
+
 def evaluate(metadata_file: str, outputs_dir: str, result_file: str):
     """评估推理结果"""
     with open(metadata_file) as f:
@@ -50,6 +71,7 @@ def evaluate(metadata_file: str, outputs_dir: str, result_file: str):
     correct = 0
     total = 0
     missing = 0
+    failed = 0
     results_detail = []
 
     # 按学科统计
@@ -70,20 +92,15 @@ def evaluate(metadata_file: str, outputs_dir: str, result_file: str):
             missing += 1
             continue
 
-        # 从输出中获取生成的文本
-        # Edge-LLM 输出格式可能是 {"responses": [{"text": "..."}]}
-        generated_text = ""
-        if "responses" in output_data:
-            responses = output_data["responses"]
-            if responses:
-                generated_text = responses[0].get("text", "")
-        elif "output" in output_data:
-            generated_text = output_data["output"]
-        elif "text" in output_data:
-            generated_text = output_data["text"]
-        else:
-            # 尝试读取整个文件作为文本
-            generated_text = json.dumps(output_data)
+        # 检查是否推理失败
+        generated_text = get_output_text(output_data)
+        if "cannot handle this request" in generated_text.lower():
+            failed += 1
+            continue
+
+        if not generated_text:
+            failed += 1
+            continue
 
         # 提取答案
         pred_letter = extract_answer_letter(generated_text)
@@ -114,23 +131,45 @@ def evaluate(metadata_file: str, outputs_dir: str, result_file: str):
 
     # 计算准确率
     accuracy = correct / total * 100 if total > 0 else 0
+    total_samples = len(metadata)
 
-    print(f"\n总体准确率: {correct}/{total} = {accuracy:.2f}%")
-    if missing > 0:
-        print(f"缺失输出: {missing}")
+    # 打印结果
+    print("╔══════════════════════════════════════════════╗")
+    print("║              评估结果                        ║")
+    print("╠══════════════════════════════════════════════╣")
+    print(f"║  数据集总量:    {total_samples}")
+    print(f"║  有效评估:      {total}")
+    print(f"║  推理失败:      {failed}")
+    print(f"║  缺失输出:      {missing}")
+    print(f"║  覆盖率:        {(total + failed) / total_samples * 100:.1f}%")
+    print("╠══════════════════════════════════════════════╣")
+    print(f"║  ✅ 正确:       {correct}/{total}")
+    print(f"║  📊 准确率:     {accuracy:.2f}%")
+    print("╚══════════════════════════════════════════════╝")
 
     # 按学科打印
-    print("\n按学科:")
-    for subject, stats in sorted(subject_stats.items()):
-        acc = stats["correct"] / stats["total"] * 100 if stats["total"] > 0 else 0
-        print(f"  {subject:20s}: {stats['correct']:4d}/{stats['total']:4d} = {acc:.2f}%")
+    if subject_stats:
+        print("\n┌─────────────────────────────────────────────┐")
+        print("│              按学科统计                       │")
+        print("├─────────────────────────────────────────────┤")
+        for subject, stats in sorted(subject_stats.items(),
+                                      key=lambda x: x[1]["total"],
+                                      reverse=True):
+            acc = stats["correct"] / stats["total"] * 100 if stats["total"] > 0 else 0
+            bar = "█" * int(acc / 5) + "░" * (20 - int(acc / 5))
+            print(f"│  {subject:16s} {stats['correct']:4d}/{stats['total']:4d}  "
+                  f"{bar} {acc:5.1f}%")
+        print("└─────────────────────────────────────────────┘")
 
     # 保存结果
     result = {
         "accuracy": accuracy,
         "correct": correct,
-        "total": total,
+        "total_evaluated": total,
+        "total_samples": total_samples,
         "missing": missing,
+        "failed": failed,
+        "coverage": (total + failed) / total_samples * 100 if total_samples > 0 else 0,
         "subject_stats": {
             k: {**v, "accuracy": v["correct"] / v["total"] * 100 if v["total"] > 0 else 0}
             for k, v in subject_stats.items()

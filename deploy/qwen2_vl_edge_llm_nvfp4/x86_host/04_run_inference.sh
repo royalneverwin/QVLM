@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# x86 主机上批量推理 ScienceQA 并评估准确率
+# x86 主机上批量推理 ScienceQA
 # 前置条件：
 #   - 已完成 x86_host/03_build_engines.sh（engine 已构建）
 #   - 已完成 x86_host/03a_prepare_scienceqa.sh（数据已准备）
@@ -37,18 +37,27 @@ if [[ ${TOTAL} -eq 0 ]]; then
     exit 1
 fi
 
-echo "============================================"
-echo " ScienceQA 推理 (TensorRT Edge-LLM)"
-echo "============================================"
-echo "  Engine LLM:    ${X86_ENGINE_LLM_DIR}"
-echo "  Engine Visual: ${X86_ENGINE_VISUAL_DIR}"
-echo "  输入目录:      ${INPUTS_DIR}"
-echo "  输出目录:      ${OUTPUTS_DIR}"
-echo "  总 batch 数:   ${TOTAL}"
-echo "============================================"
+# 时间记录文件
+TIMING_LOG="${OUTPUTS_DIR}/timing.log"
+> "${TIMING_LOG}"
+
+echo "╔══════════════════════════════════════════════╗"
+echo "║       ScienceQA 推理 (TensorRT Edge-LLM)     ║"
+echo "╠══════════════════════════════════════════════╣"
+echo "║  Engine LLM:    ${X86_ENGINE_LLM_DIR}"
+echo "║  Engine Visual: ${X86_ENGINE_VISUAL_DIR}"
+echo "║  输入目录:      ${INPUTS_DIR}"
+echo "║  输出目录:      ${OUTPUTS_DIR}"
+echo "║  总 batch 数:   ${TOTAL}"
+echo "╚══════════════════════════════════════════════╝"
+echo
 
 # 逐 batch 推理
 FAILED=0
+SUCCEEDED=0
+SKIPPED=0
+TOTAL_TIME=0
+
 for ((i=0; i<TOTAL; i++)); do
     INPUT_FILE="${INPUT_FILES[$i]}"
     BASENAME="$(basename "${INPUT_FILE}")"
@@ -56,31 +65,97 @@ for ((i=0; i<TOTAL; i++)); do
 
     # 跳过已完成的
     if [[ -f "${OUTPUT_FILE}" ]]; then
+        SKIPPED=$((SKIPPED + 1))
         continue
     fi
 
-    printf "\r[%d/%d] %s" $((i+1)) "${TOTAL}" "${BASENAME}"
+    echo "────────────────────────────────────────────────"
+    echo "[$((i+1))/${TOTAL}] ${BASENAME}"
+    echo "────────────────────────────────────────────────"
 
-    if ! "${LLM_INFER_BIN}" \
+    # 打印输入 prompt（截取前 200 字符）
+    PROMPT=$(python3 -c "
+import json, sys
+with open('${INPUT_FILE}') as f:
+    d = json.load(f)
+requests = d.get('requests', [d]) if isinstance(d, dict) else d
+for r in requests[:1]:
+    text = r.get('input_text', r.get('prompt', ''))
+    # 截取最后 200 字符（通常是 user 问题部分）
+    if len(text) > 300:
+        print('...' + text[-300:])
+    else:
+        print(text)
+" 2>/dev/null || echo "[无法解析输入]")
+    echo "  📥 Prompt: ${PROMPT}"
+    echo
+
+    # 计时推理，抑制 TRT 的 INFO/WARNING 日志（只保留 ERROR）
+    START_TIME=$(date +%s%N)
+
+    if "${LLM_INFER_BIN}" \
         --engineDir "${X86_ENGINE_LLM_DIR}" \
         --multimodalEngineDir "${X86_ENGINE_VISUAL_DIR}" \
         --inputFile "${INPUT_FILE}" \
         --outputFile "${OUTPUT_FILE}" \
-        2>> "${OUTPUTS_DIR}/inference_errors.log"; then
+        2> >(grep -E "\[ERROR\]" >> "${OUTPUTS_DIR}/inference_errors.log" || true) \
+        > /dev/null; then
+
+        END_TIME=$(date +%s%N)
+        ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+        TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
+        SUCCEEDED=$((SUCCEEDED + 1))
+
+        # 打印输出
+        OUTPUT_TEXT=$(python3 -c "
+import json
+with open('${OUTPUT_FILE}') as f:
+    d = json.load(f)
+responses = d.get('responses', [])
+if responses:
+    text = responses[0].get('text', responses[0].get('output_text', ''))
+elif 'output_text' in d:
+    text = d['output_text']
+elif 'output' in d:
+    text = d['output']
+else:
+    text = json.dumps(d)[:200]
+print(text[:500])
+" 2>/dev/null || echo "[无法解析输出]")
+
+        echo "  📤 Output: ${OUTPUT_TEXT}"
+        echo "  ⏱️  Time: ${ELAPSED_MS} ms"
+        echo "${BASENAME}: ${ELAPSED_MS} ms" >> "${TIMING_LOG}"
+    else
+        END_TIME=$(date +%s%N)
+        ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+        TOTAL_TIME=$((TOTAL_TIME + ELAPSED_MS))
         FAILED=$((FAILED + 1))
+        echo "  ❌ FAILED (${ELAPSED_MS} ms)"
+        echo "${BASENAME}: FAILED (${ELAPSED_MS} ms)" >> "${TIMING_LOG}"
     fi
+    echo
 done
 
-echo
-echo "推理完成: 成功 $((TOTAL - FAILED))/${TOTAL}, 失败 ${FAILED}"
-echo
+# 汇总统计
+PROCESSED=$((SUCCEEDED + FAILED))
+if [[ ${PROCESSED} -gt 0 ]]; then
+    AVG_TIME=$((TOTAL_TIME / PROCESSED))
+else
+    AVG_TIME=0
+fi
 
-# 评估准确率
-echo "============================================"
-echo " 评估 ScienceQA 准确率"
-echo "============================================"
-
-python3 "${SCRIPT_DIR}/evaluate_scienceqa.py" \
-    --metadata "${SCIENCEQA_EVAL_DIR}/metadata.json" \
-    --outputs-dir "${OUTPUTS_DIR}" \
-    --result-file "${SCIENCEQA_EVAL_DIR}/results.json"
+echo "╔══════════════════════════════════════════════╗"
+echo "║              推理完成 - 统计                  ║"
+echo "╠══════════════════════════════════════════════╣"
+echo "║  成功:    ${SUCCEEDED}"
+echo "║  失败:    ${FAILED}"
+echo "║  跳过:    ${SKIPPED} (已存在)"
+echo "║  总耗时:  ${TOTAL_TIME} ms"
+if [[ ${PROCESSED} -gt 0 ]]; then
+echo "║  平均:    ${AVG_TIME} ms/batch"
+fi
+echo "╚══════════════════════════════════════════════╝"
+echo
+echo "时间日志: ${TIMING_LOG}"
+echo "错误日志: ${OUTPUTS_DIR}/inference_errors.log"
