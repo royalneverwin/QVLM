@@ -151,3 +151,9 @@ export SCIENCEQA_SPLIT="test"
 
 # 最大评估样本数（0 = 全部）
 export SCIENCEQA_MAX_SAMPLES="0"
+
+
+############ Thor ScienceQA Evaluation Related ##################
+# Thor 设备上 ScienceQA 相关路径
+export DEVICE_SCIENCEQA_DATA_DIR="$DEVICE_WORKSPACE_DIR/scienceqa_data"
+export DEVICE_SCIENCEQA_EVAL_DIR="$DEVICE_WORKSPACE_DIR/scienceqa_eval"
