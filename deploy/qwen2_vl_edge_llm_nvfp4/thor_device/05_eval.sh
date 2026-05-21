@@ -7,9 +7,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${DEPLOY_DIR}/env.sh"
 
-OUTPUTS_DIR="${DEVICE_SCIENCEQA_EVAL_DIR}/outputs"
-METADATA_FILE="${DEVICE_SCIENCEQA_EVAL_DIR}/metadata.json"
-RESULT_FILE="${DEVICE_SCIENCEQA_EVAL_DIR}/results.json"
+OUTPUTS_DIR="${SCIENCEQA_OUTPUTS_DIR:-${DEVICE_SCIENCEQA_EVAL_DIR}/outputs}"
+METADATA_FILE="${SCIENCEQA_METADATA_FILE:-${DEVICE_SCIENCEQA_EVAL_DIR}/metadata.json}"
+# 默认结果文件放在对应 outputs 目录里，避免不同实验互相覆盖
+RESULT_FILE="${SCIENCEQA_RESULT_FILE:-${OUTPUTS_DIR}/results.json}"
 
 # evaluate_scienceqa.py 在 x86_host 目录下，Thor 上也能用（仓库共享）
 EVAL_SCRIPT="${DEPLOY_DIR}/x86_host/evaluate_scienceqa.py"
