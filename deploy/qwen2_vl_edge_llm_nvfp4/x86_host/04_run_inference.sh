@@ -64,9 +64,10 @@ for ((i=0; i<TOTAL; i++)); do
     if ! "${LLM_INFER_BIN}" \
         --engineDir "${X86_ENGINE_LLM_DIR}" \
         --multimodalEngineDir "${X86_ENGINE_VISUAL_DIR}" \
+        --plugin "${EDGELLM_PLUGIN_PATH}" \
         --inputFile "${INPUT_FILE}" \
         --outputFile "${OUTPUT_FILE}" \
-        > /dev/null 2>&1; then
+        2>> "${OUTPUTS_DIR}/inference_errors.log"; then
         FAILED=$((FAILED + 1))
     fi
 done
