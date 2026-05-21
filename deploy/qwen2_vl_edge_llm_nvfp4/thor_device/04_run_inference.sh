@@ -3,6 +3,15 @@
 # 前置条件：
 #   - 已完成 thor_device/03_build_engines.sh（engine 已构建）
 #   - 已完成 thor_device/03a_prepare_scienceqa.sh（图片路径已修正）
+
+# DEVICE_ENGINE_VISUAL_DIR="/home/vdig/wangxinhao/QVLM/tensorrt-edgellm-workspace/Qwen2-VL-7B-Instruct/engines/visual_visionzip_prune_0p5" \
+# SCIENCEQA_OUTPUTS_DIR="/home/vdig/wangxinhao/QVLM/tensorrt-edgellm-workspace/scienceqa_eval/outputs_visionzip_prune_0p5" \
+# bash /home/vdig/wangxinhao/QVLM/deploy/qwen2_vl_edge_llm_nvfp4/thor_device/04_run_inference.sh
+
+# SCIENCEQA_OUTPUTS_DIR="/home/vdig/wangxinhao/QVLM/tensorrt-edgellm-workspace/scienceqa_eval/outputs_baseline" \
+# bash /home/vdig/wangxinhao/QVLM/deploy/qwen2_vl_edge_llm_nvfp4/thor_device/04_run_inference.sh
+
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
