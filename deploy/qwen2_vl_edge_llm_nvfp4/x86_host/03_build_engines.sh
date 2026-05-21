@@ -33,21 +33,41 @@ fi
 
 mkdir -p "${X86_ENGINE_LLM_DIR}" "${X86_ENGINE_VISUAL_DIR}"
 
-echo "[1/2] Building LLM engine on x86"
-"${LLM_BUILD_BIN}" \
-  --onnxDir "${EXPORT_ONNX_LLM_DIR}" \
-  --engineDir "${X86_ENGINE_LLM_DIR}" \
-  --maxBatchSize "${MAX_BATCH_SIZE}" \
-  --maxInputLen "${MAX_INPUT_LEN}" \
-  --maxKVCacheCapacity "${MAX_KV_CACHE_CAPACITY}"
+# 检查 LLM engine 是否已存在
+LLM_ENGINE_EXISTS=false
+if find "${X86_ENGINE_LLM_DIR}" -name "*.engine" 2>/dev/null | grep -q .; then
+    LLM_ENGINE_EXISTS=true
+fi
 
-echo "[2/2] Building visual engine on x86"
-"${VISUAL_BUILD_BIN}" \
-  --onnxDir "${EXPORT_ONNX_VISUAL_DIR}" \
-  --engineDir "${X86_ENGINE_VISUAL_DIR}" \
-  --minImageTokens "${MIN_IMAGE_TOKENS}" \
-  --maxImageTokens "${MAX_IMAGE_TOKENS}" \
-  --maxImageTokensPerImage "${MAX_IMAGE_TOKENS_PER_IMAGE}"
+# 检查 visual engine 是否已存在
+VISUAL_ENGINE_EXISTS=false
+if find "${X86_ENGINE_VISUAL_DIR}" -name "*.engine" 2>/dev/null | grep -q .; then
+    VISUAL_ENGINE_EXISTS=true
+fi
+
+if [[ "${LLM_ENGINE_EXISTS}" == "true" ]]; then
+    echo "[1/2] LLM engine already exists, skipping (delete ${X86_ENGINE_LLM_DIR} to rebuild)"
+else
+    echo "[1/2] Building LLM engine on x86"
+    "${LLM_BUILD_BIN}" \
+      --onnxDir "${EXPORT_ONNX_LLM_DIR}" \
+      --engineDir "${X86_ENGINE_LLM_DIR}" \
+      --maxBatchSize "${MAX_BATCH_SIZE}" \
+      --maxInputLen "${MAX_INPUT_LEN}" \
+      --maxKVCacheCapacity "${MAX_KV_CACHE_CAPACITY}"
+fi
+
+if [[ "${VISUAL_ENGINE_EXISTS}" == "true" ]]; then
+    echo "[2/2] Visual engine already exists, skipping (delete ${X86_ENGINE_VISUAL_DIR} to rebuild)"
+else
+    echo "[2/2] Building visual engine on x86"
+    "${VISUAL_BUILD_BIN}" \
+      --onnxDir "${EXPORT_ONNX_VISUAL_DIR}" \
+      --engineDir "${X86_ENGINE_VISUAL_DIR}" \
+      --minImageTokens "${MIN_IMAGE_TOKENS}" \
+      --maxImageTokens "${MAX_IMAGE_TOKENS}" \
+      --maxImageTokensPerImage "${MAX_IMAGE_TOKENS_PER_IMAGE}"
+fi
 
 echo
 echo "Build finished (x86 local):"
