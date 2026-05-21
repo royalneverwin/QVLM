@@ -135,8 +135,10 @@ for r in requests[:1]:
         RUNTIME_TIMING_LINE="$(grep -hF "EdgeLLM timing:" "${STDERR_FILE}" "${STDOUT_FILE}" | tail -n 1 || true)"
         VISUAL_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*visual_ms=([0-9.]+).*/\1/p')"
         LLM_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*llm_ms=([0-9.]+).*/\1/p')"
+        RUNTIME_TOTAL_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*total_ms=([0-9.]+).*/\1/p')"
         VISUAL_PART_MS="${VISUAL_PART_MS:-N/A}"
         LLM_PART_MS="${LLM_PART_MS:-N/A}"
+        RUNTIME_TOTAL_MS="${RUNTIME_TOTAL_MS:-N/A}"
 
         TOKEN_LINE="$(grep -F "VisionZip tokens:" "${STDERR_FILE}" | tail -n 1 || true)"
         if [[ -n "${TOKEN_LINE}" ]]; then
@@ -165,8 +167,9 @@ print(text[:500])
         echo "  Output: ${OUTPUT_TEXT}"
         echo "  Visual Time: ${VISUAL_PART_MS} ms"
         echo "  LLM Time: ${LLM_PART_MS} ms"
-        echo "  Total Time: ${ELAPSED_MS} ms"
-        echo "${BASENAME}: visual=${VISUAL_PART_MS} ms, llm=${LLM_PART_MS} ms, total=${ELAPSED_MS} ms" >> "${TIMING_LOG}"
+        echo "  Total Time: ${RUNTIME_TOTAL_MS} ms"
+        echo "  Process Time: ${ELAPSED_MS} ms"
+        echo "${BASENAME}: visual=${VISUAL_PART_MS} ms, llm=${LLM_PART_MS} ms, total=${RUNTIME_TOTAL_MS} ms, process_total=${ELAPSED_MS} ms" >> "${TIMING_LOG}"
     else
         END_TIME=$(date +%s%N)
         ELAPSED_MS=$(( (END_TIME - START_TIME) / 1000000 ))
@@ -175,8 +178,10 @@ print(text[:500])
         RUNTIME_TIMING_LINE="$(grep -hF "EdgeLLM timing:" "${STDERR_FILE}" "${STDOUT_FILE}" | tail -n 1 || true)"
         VISUAL_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*visual_ms=([0-9.]+).*/\1/p')"
         LLM_PART_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*llm_ms=([0-9.]+).*/\1/p')"
+        RUNTIME_TOTAL_MS="$(echo "${RUNTIME_TIMING_LINE}" | sed -nE 's/.*total_ms=([0-9.]+).*/\1/p')"
         VISUAL_PART_MS="${VISUAL_PART_MS:-N/A}"
         LLM_PART_MS="${LLM_PART_MS:-N/A}"
+        RUNTIME_TOTAL_MS="${RUNTIME_TOTAL_MS:-N/A}"
         TOKEN_LINE="$(grep -F "VisionZip tokens:" "${STDERR_FILE}" | tail -n 1 || true)"
         if [[ -n "${TOKEN_LINE}" ]]; then
             echo "  ${TOKEN_LINE}"
@@ -186,7 +191,9 @@ print(text[:500])
         echo "  FAILED (${ELAPSED_MS} ms)"
         echo "  Visual Time: ${VISUAL_PART_MS} ms"
         echo "  LLM Time: ${LLM_PART_MS} ms"
-        echo "${BASENAME}: FAILED visual=${VISUAL_PART_MS} ms, llm=${LLM_PART_MS} ms, total=${ELAPSED_MS} ms" >> "${TIMING_LOG}"
+        echo "  Total Time: ${RUNTIME_TOTAL_MS} ms"
+        echo "  Process Time: ${ELAPSED_MS} ms"
+        echo "${BASENAME}: FAILED visual=${VISUAL_PART_MS} ms, llm=${LLM_PART_MS} ms, total=${RUNTIME_TOTAL_MS} ms, process_total=${ELAPSED_MS} ms" >> "${TIMING_LOG}"
     fi
     echo
 done
