@@ -52,15 +52,17 @@ export MAX_KV_CACHE_CAPACITY="4096"
 
 # Lower bound for image token count accepted by the visual engine.
 # This is passed to `visual_build` and should match the model/runtime needs.
-export MIN_IMAGE_TOKENS="256"
+# Qwen2-VL 在较小分辨率下单图也可能产生 ~900 tokens，设为 64 避免下限卡住
+export MIN_IMAGE_TOKENS="64"
 
 # Upper bound for total image token count accepted by the visual engine.
 # Larger values support higher-resolution inputs but cost more memory.
-export MAX_IMAGE_TOKENS="2560"
+export MAX_IMAGE_TOKENS="4096"
 
 # Upper bound for image tokens contributed by a single image. This matters for
 # multimodal requests with one or more images in the same prompt.
-export MAX_IMAGE_TOKENS_PER_IMAGE="256"
+# Qwen2-VL 标准模型 720p 图像约 1280 tokens，设 1536 留余量
+export MAX_IMAGE_TOKENS_PER_IMAGE="1536"
 
 # Default request JSON path used by `thor_device/04_run_inference.sh`.
 # The file is expected to live on the Thor device when inference is run.
