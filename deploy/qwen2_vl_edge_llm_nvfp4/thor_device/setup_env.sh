@@ -104,7 +104,23 @@ BUILD_DIR="${EDGE_LLM_REPO_PATH}/build"
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-cmake .. -DTRT_PACKAGE_DIR="${TRT_PACKAGE_DIR}"
+# 自动检测 CUDA_HOME
+if [[ -z "${CUDA_HOME:-}" ]]; then
+    for cuda_dir in /usr/local/cuda /usr/local/cuda-*; do
+        if [[ -d "${cuda_dir}/include" ]]; then
+            CUDA_HOME="${cuda_dir}"
+            break
+        fi
+    done
+fi
+
+echo "  CUDA_HOME: ${CUDA_HOME:-not set}"
+echo "  TRT_PACKAGE_DIR: ${TRT_PACKAGE_DIR}"
+
+cmake .. \
+    -DTRT_PACKAGE_DIR="${TRT_PACKAGE_DIR}" \
+    -DCUDA_DIR="${CUDA_HOME:-/usr/local/cuda}"
+
 make -j"$(nproc)"
 
 echo
