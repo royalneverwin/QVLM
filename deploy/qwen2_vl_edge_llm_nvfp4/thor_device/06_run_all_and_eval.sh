@@ -134,7 +134,7 @@ for ((i=0; i<NUM_EXP; i++)); do
                 if (cnt > 0) printf "%.2f", sum / cnt; else printf "N/A"
             }
         ' "${TIMING_LOG}")
-        SUCCEEDED_CNT=$(grep -vc "FAILED" "${TIMING_LOG}" | head -n 1 || echo 0)
+        SUCCEEDED_CNT=$(grep -Ec 'visual=.*llm=.*total=' "${TIMING_LOG}" | head -n 1 || echo 0)
     fi
 
     # ---------- 提取准确率 ----------
@@ -164,8 +164,7 @@ except Exception as e:
         echo "----- ${TAG} -----"
         echo "  outputs_dir:    ${OUTPUTS_DIR}"
         echo "  result_file:    ${RESULT_FILE}"
-        echo "  推理总耗时(s):  ${INFER_ELAPSED}"
-        echo "  成功 batch 数:  ${SUCCEEDED_CNT}"
+        echo "  有计时 batch 数: ${SUCCEEDED_CNT}"
         echo "  平均 visual(ms): ${AVG_VISUAL_MS}"
         echo "  平均 llm(ms):    ${AVG_LLM_MS}"
         echo "  平均 total(ms):  ${AVG_MS}"

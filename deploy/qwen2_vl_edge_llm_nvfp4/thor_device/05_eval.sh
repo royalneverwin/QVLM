@@ -44,3 +44,66 @@ python3 "${EVAL_SCRIPT}" \
     --metadata "${METADATA_FILE}" \
     --outputs-dir "${OUTPUTS_DIR}" \
     --result-file "${RESULT_FILE}"
+
+TIMING_LOG="${OUTPUTS_DIR}/timing.log"
+if [[ -f "${TIMING_LOG}" ]]; then
+    echo
+    python3 - "${TIMING_LOG}" "${RESULT_FILE}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+timing_log = Path(sys.argv[1])
+result_file = Path(sys.argv[2])
+
+patterns = {
+    "visual": re.compile(r"(?:^|[, ])visual=([0-9.]+)\s*ms"),
+    "llm": re.compile(r"(?:^|[, ])llm=([0-9.]+)\s*ms"),
+    "total": re.compile(r"(?:^|[, ])total=([0-9.]+)\s*ms"),
+}
+
+values = {key: [] for key in patterns}
+timed_batches = 0
+
+for line in timing_log.read_text().splitlines():
+    if "FAILED" in line:
+        continue
+    matched = {}
+    for key, pattern in patterns.items():
+        match = pattern.search(line)
+        if match:
+            matched[key] = float(match.group(1))
+    if matched:
+        timed_batches += 1
+        for key, value in matched.items():
+            values[key].append(value)
+
+def average(items):
+    return sum(items) / len(items) if items else None
+
+timing_stats = {
+    "timed_batches": timed_batches,
+    "avg_visual_ms": average(values["visual"]),
+    "avg_llm_ms": average(values["llm"]),
+    "avg_total_ms": average(values["total"]),
+}
+
+print("╔══════════════════════════════════════════════╗")
+print("║              推理耗时统计                    ║")
+print("╠══════════════════════════════════════════════╣")
+print(f"║  有计时 batch:  {timed_batches}")
+for label, key in (("Visual", "avg_visual_ms"), ("LLM", "avg_llm_ms"), ("Total", "avg_total_ms")):
+    value = timing_stats[key]
+    text = "N/A" if value is None else f"{value:.2f} ms"
+    print(f"║  平均 {label:6s}: {text}")
+print("╚══════════════════════════════════════════════╝")
+
+if result_file.exists():
+    with result_file.open() as f:
+        result = json.load(f)
+    result["timing_stats"] = timing_stats
+    with result_file.open("w") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+PY
+fi
