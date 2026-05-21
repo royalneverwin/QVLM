@@ -29,7 +29,7 @@ export EDGELLM_PLUGIN_PATH="${EDGE_LLM_REPO}/build/libNvInfer_edgellm_plugin.so"
 export DEVICE_USER="vdig"
 
 # SSH hostname or IP address of the Thor device used by the transfer script.
-export DEVICE_HOST="222.29.156.86"
+export DEVICE_HOST="222.29.156.26"
 
 # Thor-side workspace root. This single path is shared by:
 # 1. x86 host scripts when they copy files to the Thor device via `ssh/scp`
