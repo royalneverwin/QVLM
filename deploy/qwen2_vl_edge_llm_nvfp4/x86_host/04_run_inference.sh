@@ -73,15 +73,30 @@ for ((i=0; i<TOTAL; i++)); do
     echo "[$((i+1))/${TOTAL}] ${BASENAME}"
     echo "────────────────────────────────────────────────"
 
-    # 打印输入 prompt（截取前 200 字符）
+    # 打印输入 prompt（提取 user message 中的文字部分）
     PROMPT=$(python3 -c "
-import json, sys
+import json
 with open('${INPUT_FILE}') as f:
     d = json.load(f)
 requests = d.get('requests', [d]) if isinstance(d, dict) else d
 for r in requests[:1]:
-    text = r.get('input_text', r.get('prompt', ''))
-    # 截取最后 200 字符（通常是 user 问题部分）
+    # 支持 input_text 格式
+    if 'input_text' in r:
+        text = r['input_text']
+    # 支持 messages 格式（提取 user 的文字内容，忽略 image token）
+    elif 'messages' in r:
+        text = ''
+        for msg in r['messages']:
+            if msg.get('role') != 'user':
+                continue
+            content = msg.get('content', '')
+            if isinstance(content, list):
+                parts = [p.get('text', '') for p in content if p.get('type') == 'text']
+                text = ' '.join(parts)
+            elif isinstance(content, str):
+                text = content
+    else:
+        text = r.get('prompt', '')
     if len(text) > 300:
         print('...' + text[-300:])
     else:
