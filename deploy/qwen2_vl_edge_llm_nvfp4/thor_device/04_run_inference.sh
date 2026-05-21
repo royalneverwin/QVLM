@@ -17,8 +17,8 @@ if [[ ! -x "${LLM_INFER_BIN}" ]]; then
 fi
 
 # 检查是否有 ScienceQA 输入
-INPUTS_DIR="${DEVICE_SCIENCEQA_EVAL_DIR}/inputs"
-OUTPUTS_DIR="${DEVICE_SCIENCEQA_EVAL_DIR}/outputs"
+INPUTS_DIR="${SCIENCEQA_INPUTS_DIR:-${DEVICE_SCIENCEQA_EVAL_DIR}/inputs}"
+OUTPUTS_DIR="${SCIENCEQA_OUTPUTS_DIR:-${DEVICE_SCIENCEQA_EVAL_DIR}/outputs}"
 
 if [[ ! -d "${INPUTS_DIR}" ]]; then
     echo "ScienceQA 输入目录不存在: ${INPUTS_DIR}" >&2
