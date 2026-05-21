@@ -57,8 +57,8 @@ def download_scienceqa(data_dir: str):
     for hf_split, local_split in split_map.items():
         if hf_split not in dataset:
             continue
-        for item in dataset[hf_split]:
-            pid = str(item["index"])
+        for idx, item in enumerate(dataset[hf_split]):
+            pid = f"{local_split}_{idx}"
             pid_splits[local_split].append(pid)
 
             problems[pid] = {
