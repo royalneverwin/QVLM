@@ -11,16 +11,20 @@
 #   bash thor_device/setup_env.sh
 #
 # 可选环境变量：
-#   EDGE_LLM_REPO_PATH  - TensorRT-Edge-LLM 仓库克隆路径（默认 ~/TensorRT-Edge-LLM）
+#   EDGE_LLM_REPO_PATH  - TensorRT-Edge-LLM 仓库克隆路径（默认 /home/vdig/wangxinhao/TensorRT-Edge-LLM）
 #   TRT_PACKAGE_DIR     - TensorRT 安装路径（默认 /usr）
+#   CUDA_CTK_VERSION    - CUDA Toolkit 版本（Thor/JetPack 默认 13.0）
+#   ENABLE_CUTE_DSL     - 是否链接 CuTe DSL kernels（Thor 默认 fmha）
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ─── 配置 ───
-EDGE_LLM_REPO_PATH=/home/vdig/wangxinhao/TensorRT-Edge-LLM
+EDGE_LLM_REPO_PATH="${EDGE_LLM_REPO_PATH:-/home/vdig/wangxinhao/TensorRT-Edge-LLM}"
 TRT_PACKAGE_DIR="${TRT_PACKAGE_DIR:-/usr}"
+CUDA_CTK_VERSION="${CUDA_CTK_VERSION:-13.0}"
+ENABLE_CUTE_DSL="${ENABLE_CUTE_DSL:-fmha}"
 EDGE_LLM_GIT_URL="https://github.com/NVIDIA/TensorRT-Edge-LLM.git"
 
 echo "╔══════════════════════════════════════════════╗"
@@ -117,8 +121,10 @@ fi
 echo "  CUDA_HOME: ${CUDA_HOME:-not set}"
 echo "  TRT_PACKAGE_DIR: ${TRT_PACKAGE_DIR}"
 
-# 自动检测 GPU compute capability，用于编译对应的 FMHA cubin
-# CMake 根据 CMAKE_CUDA_ARCHITECTURES 决定编译哪些 FMHA kernel
+# 自动检测 GPU compute capability，用于编译对应的 CUDA code 和 FMHA cubin
+# 注意：TensorRT-Edge-LLM 顶层 CMake 在未设置 AARCH64_BUILD 时会覆盖
+# CMAKE_CUDA_ARCHITECTURES 为 x86 默认列表，因此 Thor 必须显式设置
+# AARCH64_BUILD/EMBEDDED_TARGET。
 GPU_ARCH="${GPU_ARCH:-}"
 if [[ -z "${GPU_ARCH}" ]]; then
     # 尝试用 python3 + torch 检测
@@ -132,17 +138,29 @@ if [[ -z "${GPU_ARCH}" ]]; then
     echo "  警告: 无法自动检测 GPU 架构，使用默认值 87"
     GPU_ARCH="87"
 fi
-echo "  GPU_ARCH (SM): ${GPU_ARCH}"
 
-# SM 110 (Thor/Blackwell) 的 FMHA cubin 需要手动添加到 TensorRT-Edge-LLM
-# 如果编译报 "no kernel to implement MHA"，请手动编辑：
-#   ~/TensorRT-Edge-LLM/cpp/CMakeLists.txt
-# 在 FMHA_ALL_SM_VERSIONS 列表中 121 前添加 110
+# Edge-LLM 的 embedded toolchain 使用 110a；若本机 CUDA/CMake 不接受 110a，
+# 可在调用脚本前覆盖：GPU_ARCH=110 bash thor_device/setup_env.sh
+if [[ "${GPU_ARCH}" == "110" ]]; then
+    GPU_ARCH="110a"
+fi
+echo "  GPU_ARCH (SM): ${GPU_ARCH}"
+echo "  CUDA_CTK_VERSION: ${CUDA_CTK_VERSION}"
+echo "  ENABLE_CUTE_DSL: ${ENABLE_CUTE_DSL}"
+
+# SM 110 (Thor/Blackwell) 运行时在 Edge-LLM 中会映射到 SM 101 的 FMHA_v2 cubin。
+# 仅把 110 加进 FMHA_ALL_SM_VERSIONS 不够；必须保证 CMake 没有把 SM 101
+# cubin 排除掉。下面的 AARCH64_BUILD/EMBEDDED_TARGET 会阻止 x86 默认架构覆盖。
 
 cmake .. \
     -DTRT_PACKAGE_DIR="${TRT_PACKAGE_DIR}" \
     -DCUDA_DIR="${CUDA_HOME:-/usr/local/cuda}" \
-    -DCMAKE_CUDA_ARCHITECTURES="${GPU_ARCH}"
+    -DCUDA_CTK_VERSION="${CUDA_CTK_VERSION}" \
+    -DAARCH64_BUILD=ON \
+    -DEMBEDDED_TARGET=jetson-thor \
+    -DCMAKE_CUDA_ARCHITECTURES="${GPU_ARCH}" \
+    -DENABLE_CUTE_DSL="${ENABLE_CUTE_DSL}" \
+    -DCUTE_DSL_ARTIFACT_TAG=sm_110
 
 make -j"$(nproc)"
 
